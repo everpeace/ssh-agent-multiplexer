@@ -50,8 +50,8 @@ docker_manifests:
   - ghcr.io/everpeace/{{ .ProjectName }}:{{ .Version }}-arm64v8
 - name_template: ghcr.io/everpeace/{{ .ProjectName }}:latest
   image_templates:
-  - ghcr.io/everpeace/{{ .ProjectName }}:latest-amd64
-  - ghcr.io/everpeace/{{ .ProjectName }}:latest-arm64v8
+  - ghcr.io/everpeace/{{ .ProjectName }}:{{ .Version }}-amd64
+  - ghcr.io/everpeace/{{ .ProjectName }}:{{ .Version }}-arm64v8
 
 release:
   prerelease: auto
