@@ -36,10 +36,22 @@ var (
 )
 
 func main() {
-	pflag.BoolVar(&debug, "debug", false, "debug mode")
-	pflag.StringVar(&listen, "listen", "", "socket path to listen for the multiplexer. it is generated automatically if not set")
-	pflag.StringSliceVar(&targets, "targets", nil, "paths of target agent to proxy")
+	version := pflag.BoolP("version", "v", false, "Print version and exit")
+	help := pflag.BoolP("help", "h", false, "Print the help")
+	pflag.BoolVarP(&debug, "debug", "d", false, "debug mode")
+	pflag.StringVarP(&listen, "listen", "l", "", "socket path to listen for the multiplexer. it is generated automatically if not set")
+	pflag.StringSliceVarP(&targets, "target", "t", nil, "path of target agent to proxy. you can specify this option multiple times")
 	pflag.Parse()
+
+	if *help {
+		pflag.Usage()
+		os.Exit(1)
+	}
+
+	if *version {
+		fmt.Printf("Version=%s, Revision=%s", Version, Revision)
+		os.Exit(0)
+	}
 
 	// setup logger, signal handlers
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339, NoColor: true})
