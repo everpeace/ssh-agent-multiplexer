@@ -30,9 +30,10 @@ var (
 )
 
 var (
-	listen  string
-	targets []string
-	debug   bool
+	listen    string
+	targets   []string
+	addTarget string
+	debug     bool
 )
 
 func main() {
@@ -41,6 +42,7 @@ func main() {
 	pflag.BoolVarP(&debug, "debug", "d", false, "debug mode")
 	pflag.StringVarP(&listen, "listen", "l", "", "socket path to listen for the multiplexer. it is generated automatically if not set")
 	pflag.StringSliceVarP(&targets, "target", "t", nil, "path of target agent to proxy. you can specify this option multiple times")
+	pflag.StringVarP(&addTarget, "add-target", "a", "", "path of target agent for ssh-add command")
 	pflag.Parse()
 
 	if *help {
@@ -62,8 +64,13 @@ func main() {
 	log.Info().Str("version", Version).Str("revision", Revision).Msg("")
 
 	// validation
-	if len(targets) == 0 {
-		log.Fatal().Msg("target must be specified at least one")
+	if addTarget == "" {
+		log.Fatal().Msg("add-target must be specified")
+	}
+	for _, t := range targets {
+		if t == addTarget {
+			log.Fatal().Msg("target paths must not include add-target path")
+		}
 	}
 
 	// initializing socket to listen
@@ -93,7 +100,8 @@ func main() {
 	for _, t := range targets {
 		targetAgents = append(targetAgents, pkg.MustNewAgent(t))
 	}
-	agt := pkg.NewMuxAgent(targetAgents)
+	addAgent := pkg.MustNewAgent(addTarget)
+	agt := pkg.NewMuxAgent(targetAgents, addAgent)
 	log.Debug().Msg("Succeed to connect all the target agents.")
 
 	log.Info().Str("listen", listen).Msg("Agent multiplexer listening")

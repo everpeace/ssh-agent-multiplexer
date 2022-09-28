@@ -16,12 +16,14 @@ import (
 var _ agent.Agent = &MuxAgent{}
 
 type MuxAgent struct {
-	Targets []Agent
+	AddTarget Agent
+	Targets   []Agent
 }
 
-func NewMuxAgent(targets []Agent) agent.Agent {
+func NewMuxAgent(targets []Agent, addTarget Agent) agent.Agent {
 	return &MuxAgent{
-		Targets: targets,
+		AddTarget: addTarget,
+		Targets:   targets,
 	}
 }
 
@@ -144,7 +146,7 @@ func (m *MuxAgent) Signers() ([]ssh.Signer, error) {
 }
 
 func (m *MuxAgent) iterate(f func(a Agent) bool) {
-	for _, aux := range m.Targets {
+	for _, aux := range append(m.Targets, m.AddTarget) {
 		if stop := f(aux); stop {
 			return
 		}
@@ -153,15 +155,51 @@ func (m *MuxAgent) iterate(f func(a Agent) bool) {
 
 // Add implements agent.Agent
 func (m *MuxAgent) Add(key agent.AddedKey) error {
-	return errors.New("Not Implemented: Add")
+	logger := log.With().Str("method", "Add").Str("path", m.AddTarget.path).Logger()
+
+	err := m.AddTarget.Add(key)
+	if err != nil {
+		logger.Error().Err(err).Msg("Failed to add a key")
+		return err
+	}
+
+	logger.Debug().Msg("Added a key")
+	return nil
 }
 
 // Remove implements agent.Agent
 func (m *MuxAgent) Remove(key ssh.PublicKey) error {
-	return errors.New("Not Implemented: Remove")
+	mapping, err := m.publicKeyToAgentMapping()
+	if err != nil {
+		return err
+	}
+	for _, e := range mapping {
+		logger := log.With().Str("method", "Remove").Str("path", e.agt.path).Logger()
+		if e.pk.Type() == key.Type() && bytes.Equal(e.pk.Marshal(), key.Marshal()) {
+			err := e.agt.Remove(key)
+			if err != nil {
+				logger.Error().Err(err).Msg("Failed to remove a key")
+				return err
+			}
+			logger.Debug().Msg("Removed a key")
+			return nil
+		}
+	}
+	log.Warn().Str("method", "Remove").Msg("Not found a key to remove. Ignored")
+	return nil
 }
 
 // RemoveAll implements agent.Agent
-func (*MuxAgent) RemoveAll() error {
-	return errors.New("Not Implemented: RemoveAll")
+func (m *MuxAgent) RemoveAll() error {
+	m.iterate(func(a Agent) bool {
+		logger := log.With().Str("method", "RemoveAll").Str("path", a.path).Logger()
+		err := a.RemoveAll()
+		if err != nil {
+			logger.Warn().Err(err).Msg("Failed to remove all keys. Ignored")
+			return false
+		}
+		logger.Debug().Msg("Removed all keys")
+		return false
+	})
+	return nil
 }
