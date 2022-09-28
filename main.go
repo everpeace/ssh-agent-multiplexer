@@ -38,7 +38,7 @@ var (
 func main() {
 	pflag.BoolVar(&debug, "debug", false, "debug mode")
 	pflag.StringVar(&listen, "listen", "", "socket path to listen for the multiplexer. it is generated automatically if not set")
-	pflag.StringSliceVar(&targets, "targets", nil, "paths of target agent to proxy")
+	pflag.StringSliceVarP(&targets, "target", "t", nil, "path of target agent to proxy. you can specify this option multiple times")
 	pflag.Parse()
 
 	// setup logger, signal handlers
