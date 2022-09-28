@@ -1,10 +1,10 @@
 NAME        := ssh-agent-multiplexer
 PROJECTROOT := $(shell pwd)
-VERSION     := $(if $(VERSION),$(VERSION),$(shell cat ${PROJECTROOT}/VERSION)-dev)
+VERSION     := $(shell git describe --tags --abbrev=1 --dirty)
 REVISION    := $(shell git rev-parse --short HEAD)
 OUTDIR      ?= $(PROJECTROOT)/dist
 
-LDFLAGS := -ldflags="-s -w -X main.Version=$(VERSION) -X main.Revision=$(REVISION)"
+LDFLAGS := -ldflags="-s -w -X main.Version=$(VERSION:v%=%) -X main.Revision=$(REVISION)"
 
 .PHONY: build
 build: fmt lint build-only

@@ -12,12 +12,6 @@ builds:
   goarch:
   - amd64
   - arm64
-  flags:
-  - -a
-  - -tags
-  - netgo
-  - -installsuffix
-  - netgo
   ldflags:
   - -s -w -X main.Version={{.Version}} -X main.Revision={{.ShortCommit}}
 
@@ -59,5 +53,5 @@ docker_manifests:
   - ghcr.io/everpeace/{{ .ProjectName }}:latest-amd64
   - ghcr.io/everpeace/{{ .ProjectName }:latest-arm64v8
 
-changelog:
-  skip: true
+release:
+  prerelease: auto
