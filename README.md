@@ -33,6 +33,10 @@ $ ssh-add -d <public_key>
 $ ssh -A some.host
 ```
 
+## Release
+
+The release process is fully automated by [tagpr](https://github.com/Songmu/tagpr). To release, just merge [the latest release PR](https://github.com/everpeace/ssh-agent-multiplexer/pulls?q=is:pr+is:open+label:tagpr).
+
 ## License
 
 Apache License, Version 2.0.  
