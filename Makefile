@@ -32,17 +32,3 @@ setup:
 	go install golang.org/x/tools/cmd/goimports@latest && \
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(shell go env GOPATH)/bin v1.49.0 && \
 	go install github.com/elastic/go-licenser@latest
-
-#
-# Release
-#
-.PHONY: release
-release: guard-RELEASE guard-RELEASE_TAG
-	git diff --quiet HEAD || (echo "your current branch is dirty" && exit 1)
-	git tag $(RELEASE_TAG) $(REVISION)
-	git push origin $(RELEASE_TAG)
-guard-%:
-	@ if [ "${${*}}" = "" ]; then \
-		echo "Environment variable $* is not set"; \
-		exit 1; \
-	fi
