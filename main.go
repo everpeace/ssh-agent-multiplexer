@@ -96,7 +96,7 @@ func main() {
 	}()
 
 	// create agents
-	targetAgents := []pkg.Agent{}
+	targetAgents := []*pkg.Agent{}
 	for _, t := range targets {
 		targetAgents = append(targetAgents, pkg.MustNewAgent(t))
 	}
