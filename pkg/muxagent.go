@@ -16,11 +16,11 @@ import (
 var _ agent.Agent = &MuxAgent{}
 
 type MuxAgent struct {
-	AddTarget Agent
-	Targets   []Agent
+	AddTarget *Agent
+	Targets   []*Agent
 }
 
-func NewMuxAgent(targets []Agent, addTarget Agent) agent.Agent {
+func NewMuxAgent(targets []*Agent, addTarget *Agent) agent.Agent {
 	return &MuxAgent{
 		AddTarget: addTarget,
 		Targets:   targets,
@@ -31,7 +31,7 @@ func NewMuxAgent(targets []Agent, addTarget Agent) agent.Agent {
 func (m *MuxAgent) List() ([]*agent.Key, error) {
 	var err error
 	keys := []*agent.Key{}
-	m.iterate(func(a Agent) bool {
+	m.iterate(func(a *Agent) bool {
 		logger := log.With().Str("method", "List").Str("path", a.path).Logger()
 		_keys, err := a.List()
 		if err != nil {
@@ -50,7 +50,7 @@ func (m *MuxAgent) List() ([]*agent.Key, error) {
 
 // Lock implements agent.Agent
 func (m *MuxAgent) Lock(passphrase []byte) error {
-	m.iterate(func(a Agent) bool {
+	m.iterate(func(a *Agent) bool {
 		logger := log.With().Str("method", "Lock").Str("path", a.path).Logger()
 		err := a.Lock(passphrase)
 		if err != nil {
@@ -64,7 +64,7 @@ func (m *MuxAgent) Lock(passphrase []byte) error {
 
 // Unlock implements agent.Agent
 func (m *MuxAgent) Unlock(passphrase []byte) error {
-	m.iterate(func(a Agent) bool {
+	m.iterate(func(a *Agent) bool {
 		logger := log.With().Str("method", "Unlock").Str("path", a.path).Logger()
 		err := a.Unlock(passphrase)
 		if err != nil {
@@ -78,7 +78,7 @@ func (m *MuxAgent) Unlock(passphrase []byte) error {
 
 type publicKeyToAgent struct {
 	pk  ssh.PublicKey
-	agt Agent
+	agt *Agent
 }
 
 // Sign implements agent.Agent
@@ -105,7 +105,7 @@ func (m *MuxAgent) Sign(key ssh.PublicKey, data []byte) (*ssh.Signature, error) 
 func (m *MuxAgent) publicKeyToAgentMapping() ([]publicKeyToAgent, error) {
 	pkToAgents := []publicKeyToAgent{}
 	var err error
-	m.iterate(func(a Agent) bool {
+	m.iterate(func(a *Agent) bool {
 		signers, err := a.Signers()
 		if err != nil {
 			return true
@@ -128,7 +128,7 @@ func (m *MuxAgent) publicKeyToAgentMapping() ([]publicKeyToAgent, error) {
 func (m *MuxAgent) Signers() ([]ssh.Signer, error) {
 	signers := []ssh.Signer{}
 	var err error
-	m.iterate(func(a Agent) bool {
+	m.iterate(func(a *Agent) bool {
 		logger := log.With().Str("method", "Signers").Str("path", a.path).Logger()
 		_signers, err := a.Signers()
 		if err != nil {
@@ -145,7 +145,7 @@ func (m *MuxAgent) Signers() ([]ssh.Signer, error) {
 	return signers, nil
 }
 
-func (m *MuxAgent) iterate(f func(a Agent) bool) {
+func (m *MuxAgent) iterate(f func(a *Agent) bool) {
 	for _, aux := range append(m.Targets, m.AddTarget) {
 		if stop := f(aux); stop {
 			return
@@ -191,7 +191,7 @@ func (m *MuxAgent) Remove(key ssh.PublicKey) error {
 
 // RemoveAll implements agent.Agent
 func (m *MuxAgent) RemoveAll() error {
-	m.iterate(func(a Agent) bool {
+	m.iterate(func(a *Agent) bool {
 		logger := log.With().Str("method", "RemoveAll").Str("path", a.path).Logger()
 		err := a.RemoveAll()
 		if err != nil {
