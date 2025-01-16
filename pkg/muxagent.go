@@ -7,13 +7,15 @@ package pkg
 import (
 	"bytes"
 	"errors"
+	"fmt"
 
 	"github.com/rs/zerolog/log"
+	"go.uber.org/multierr"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 )
 
-var _ agent.Agent = &MuxAgent{}
+var _ agent.ExtendedAgent = &MuxAgent{}
 
 type MuxAgent struct {
 	AddTarget *Agent
@@ -99,14 +101,15 @@ func (m *MuxAgent) Sign(key ssh.PublicKey, data []byte) (*ssh.Signature, error) 
 			return signature, nil
 		}
 	}
-	return nil, errors.New("Not found for suitable signer")
+	return nil, errors.New("not found for suitable signer")
 }
 
 func (m *MuxAgent) publicKeyToAgentMapping() ([]publicKeyToAgent, error) {
 	pkToAgents := []publicKeyToAgent{}
 	var err error
 	m.iterate(func(a *Agent) bool {
-		signers, err := a.Signers()
+		var signers []ssh.Signer
+		signers, err = a.Signers()
 		if err != nil {
 			return true
 		}
@@ -130,7 +133,8 @@ func (m *MuxAgent) Signers() ([]ssh.Signer, error) {
 	var err error
 	m.iterate(func(a *Agent) bool {
 		logger := log.With().Str("method", "Signers").Str("path", a.path).Logger()
-		_signers, err := a.Signers()
+		var _signers []ssh.Signer
+		_signers, err = a.Signers()
 		if err != nil {
 			logger.Error().Err(err).Msg("Failed to get Signers")
 			return true
@@ -146,7 +150,7 @@ func (m *MuxAgent) Signers() ([]ssh.Signer, error) {
 }
 
 func (m *MuxAgent) iterate(f func(a *Agent) bool) {
-	for _, aux := range append(m.Targets, m.AddTarget) {
+	for _, aux := range append([]*Agent{m.AddTarget}, m.Targets...) {
 		if stop := f(aux); stop {
 			return
 		}
@@ -202,4 +206,54 @@ func (m *MuxAgent) RemoveAll() error {
 		return false
 	})
 	return nil
+}
+
+// Extension implements agent.ExtendedAgent.
+func (m *MuxAgent) Extension(extensionType string, contents []byte) ([]byte, error) {
+	var resp []byte
+	var errs error
+
+	m.iterate(func(a *Agent) bool {
+		logger := log.With().Str("method", "Extension").Str("path", a.path).Logger()
+		var err error
+		resp, err = a.Extension(extensionType, contents)
+		if err != nil {
+			if err == agent.ErrExtensionUnsupported {
+				logger.Debug().Err(err).Msg("Try next agent")
+				return false
+			}
+			logger.Warn().Err(err).Msg("Failed to run extension. Try next Agent")
+			errs = multierr.Append(errs, fmt.Errorf("Extension failed on %s: %w", a.path, err))
+			return false
+		}
+		logger.Debug().Msg("Removed all keys")
+		return true
+	})
+
+	if resp != nil {
+		return resp, nil
+	}
+
+	return nil, errs
+}
+
+// SignWithFlags implements agent.ExtendedAgent.
+func (m *MuxAgent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent.SignatureFlags) (*ssh.Signature, error) {
+	mapping, err := m.publicKeyToAgentMapping()
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range mapping {
+		logger := log.With().Str("method", "SignWithFlags").Str("path", e.agt.path).Logger()
+		if e.pk.Type() == key.Type() && bytes.Equal(e.pk.Marshal(), key.Marshal()) {
+			signature, err := e.agt.SignWithFlags(key, data, flags)
+			if err != nil {
+				logger.Error().Err(err).Msg("Failed to sign")
+				return nil, err
+			}
+			logger.Debug().Msg("Signed")
+			return signature, nil
+		}
+	}
+	return nil, errors.New("not found for suitable signer")
 }
