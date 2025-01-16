@@ -14,10 +14,10 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 )
 
-var _ agent.Agent = &Agent{}
+var _ agent.ExtendedAgent = &Agent{}
 
 type Agent struct {
-	agent  agent.Agent
+	agent  agent.ExtendedAgent
 	path   string
 	logger zerolog.Logger
 
@@ -149,6 +149,40 @@ func (a *Agent) Signers() ([]ssh.Signer, error) {
 	err := a.retry(logger, func() error {
 		var err error
 		ret, err = a.agent.Signers()
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return ret, nil
+}
+
+func (a *Agent) Extension(extensionType string, contents []byte) ([]byte, error) {
+	logger := a.logger.With().Str("method", "Extension").Logger()
+	var ret []byte
+	err := a.retry(logger, func() error {
+		var err error
+		ret, err = a.agent.Extension(extensionType, contents)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return ret, nil
+}
+
+func (a *Agent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent.SignatureFlags) (*ssh.Signature, error) {
+	logger := a.logger.With().Str("method", "SignWithFlags").Logger()
+	var ret *ssh.Signature
+	err := a.retry(logger, func() error {
+		var err error
+		ret, err = a.agent.SignWithFlags(key, data, flags)
 		if err != nil {
 			return err
 		}

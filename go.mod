@@ -1,12 +1,13 @@
 module github.com/everpeace/ssh-agent-multiplexer
 
-go 1.19
-
-require golang.org/x/crypto v0.0.0-20220926161630-eccd6366d1be
+go 1.23
 
 require (
-	github.com/hashicorp/errwrap v1.0.0 // indirect
-	github.com/hashicorp/go-multierror v1.1.1 // indirect
+	go.uber.org/multierr v1.11.0
+	golang.org/x/crypto v0.0.0-20220926161630-eccd6366d1be
+)
+
+require (
 	github.com/mattn/go-colorable v0.1.12 // indirect
 	github.com/mattn/go-isatty v0.0.14 // indirect
 )
