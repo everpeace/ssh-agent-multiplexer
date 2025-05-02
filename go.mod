@@ -1,21 +1,18 @@
 module github.com/everpeace/ssh-agent-multiplexer
 
-go 1.23
+go 1.23.0
 
 toolchain go1.24.2
 
 require (
+	github.com/rs/zerolog v1.34.0
+	github.com/spf13/pflag v1.0.6
 	go.uber.org/multierr v1.11.0
-	golang.org/x/crypto v0.0.0-20220926161630-eccd6366d1be
+	golang.org/x/crypto v0.37.0
 )
 
 require (
-	github.com/mattn/go-colorable v0.1.12 // indirect
-	github.com/mattn/go-isatty v0.0.14 // indirect
-)
-
-require (
-	github.com/rs/zerolog v1.28.0
-	github.com/spf13/pflag v1.0.5
-	golang.org/x/sys v0.0.0-20210927094055-39ccf1dd6fa6 // indirect
+	github.com/mattn/go-colorable v0.1.14 // indirect
+	github.com/mattn/go-isatty v0.0.20 // indirect
+	golang.org/x/sys v0.32.0 // indirect
 )
