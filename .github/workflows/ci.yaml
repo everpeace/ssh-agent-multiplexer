@@ -32,7 +32,7 @@ jobs:
     - name: Build
       run: make
     - name: Validate .goreleaser.yml
-      uses: goreleaser/goreleaser-action@v3
+      uses: goreleaser/goreleaser-action@v6
       with:
         version: latest
         args: release --snapshot --skip=publish --clean --verbose
