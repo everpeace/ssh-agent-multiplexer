@@ -6,6 +6,8 @@ OUTDIR      ?= $(PROJECTROOT)/dist
 
 LDFLAGS := -ldflags="-s -w -X main.Version=$(VERSION:v%=%) -X main.Revision=$(REVISION)"
 
+export GOTOOLCHAIN=auto
+
 .PHONY: build
 build: fmt lint build-only
 
@@ -30,5 +32,5 @@ clean:
 setup:
 	cd $(shell go env GOPATH) && \
 	go install golang.org/x/tools/cmd/goimports@latest && \
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(shell go env GOPATH)/bin v1.63.4 && \
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(shell go env GOPATH)/bin && \
 	go install github.com/elastic/go-licenser@latest
