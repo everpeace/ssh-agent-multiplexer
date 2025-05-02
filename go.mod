@@ -2,6 +2,8 @@ module github.com/everpeace/ssh-agent-multiplexer
 
 go 1.23
 
+toolchain go1.24.2
+
 require (
 	go.uber.org/multierr v1.11.0
 	golang.org/x/crypto v0.0.0-20220926161630-eccd6366d1be
