@@ -32,9 +32,7 @@ func promptUserForSelection(targets []string, keyInfo string) (string, error) {
 		}
 
 		args := []string{"--list", "--column=Targets", "--hide-header", "--text=" + promptText}
-		for _, target := range targets {
-			args = append(args, target)
-		}
+		args = append(args, targets...)
 
 		cmd := exec.Command(zenityPath, args...)
 		var stdout, stderr bytes.Buffer
@@ -98,7 +96,7 @@ func promptUserForSelection(targets []string, keyInfo string) (string, error) {
 			// We need to find the target associated with this tag.
 			// Since we used index+1 as tag:
 			selectedIndex := -1
-			fmt.Sscanf(selectedTag, "%d", &selectedIndex) // Basic parsing
+			_, _ = fmt.Sscanf(selectedTag, "%d", &selectedIndex) // Basic parsing
 			if selectedIndex > 0 && selectedIndex <= len(targets) {
 				return targets[selectedIndex-1], nil
 			}

@@ -25,7 +25,8 @@ build-select-tool:
 
 .PHONY: lint
 lint:
-	$(shell go env GOPATH)/bin/golangci-lint run
+	GOOS=darwin $(shell go env GOPATH)/bin/golangci-lint run
+	GOOS=linux $(shell go env GOPATH)/bin/golangci-lint run
 
 .PHONY: test
 test:
