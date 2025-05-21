@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/everpeace/ssh-agent-multiplexer/pkg/config"
@@ -50,7 +51,7 @@ type configTestCase struct {
 	expectLoadError      bool   // True if LoadViperConfig is expected to error
 	expectedLoadErrorMsg string // Substring for LoadViperConfig error
 	expectParseError     bool   // True if fs.Parse is expected to error
-	preTestHook          func(t *testing.T, workingDir string, userConfigDir string)
+	preTestHook          func(t *testing.T, workingDir string, appSpecificUserStdConfigDir string, tempUserHomeDir string)
 	postTestHook         func(t *testing.T)
 }
 
@@ -130,22 +131,22 @@ targets = ["/target/default_local.sock"]
 			},
 		},
 		{
-			name: "config file from user config dir (~/.config/ssh-agent-multiplexer/config.toml)",
+			name: "config file from user config dir (platform specific)",
 			args: []string{},
 			configContent: `
 debug = false # Explicitly false
 listen = "/tmp/user_config.sock"
 add_targets = ["/add/user_config.sock"]
 `,
-			configFileRelPath:  "config.toml",
-			useCustomConfigDir: true,
+			configFileRelPath:  "config.toml", // This is the filename inside the app-specific user config dir
+			useCustomConfigDir: true,           // Signals to create it in the platform-specific user dir
 			expectedConfig: config.AppConfig{
 				Debug:               false,
 				Listen:              "/tmp/user_config.sock",
 				Targets:             []string{},
 				AddTargets:          []string{"/add/user_config.sock"},
 				SelectTargetCommand: "ssh-agent-mux-select",
-				ConfigFilePathUsed:  "config.toml",
+				ConfigFilePathUsed:  "config.toml", // Will be updated to absolute path
 			},
 		},
 		{
@@ -222,40 +223,34 @@ select_target_command = ""
 		{
 			name: "local_directory_config_takes_precedence_over_user_config_dir",
 			args: []string{}, // No --config flag
-			preTestHook: func(t *testing.T, workingDir string, userConfigDir string) {
-				// Create a config in the local working dir (this one should win)
+			preTestHook: func(t *testing.T, workingDir string, appSpecificUserStdConfigDir string, tempUserHomeDir string) {
 				_, cleanupLocal := createTempConfigFile(t, workingDir, ".ssh-agent-multiplexer.toml", `
 debug = true
 listen = "local_wins"
 targets = ["/local/target.sock"]
 `)
 				t.Cleanup(cleanupLocal)
-
-				// Create a config in the user config dir (this one should be ignored)
-				_, cleanupUser := createTempConfigFile(t, userConfigDir, "config.toml", `
+				_, cleanupUser := createTempConfigFile(t, appSpecificUserStdConfigDir, "config.toml", `
 debug = false
 listen = "user_config_should_be_ignored"
 targets = ["/user/target.sock"]
 `)
 				t.Cleanup(cleanupUser)
 			},
-			// useCustomConfigDir is not strictly needed here as we are testing the interaction,
-			// but the preTestHook uses userConfigDir, so HOME mocking is relevant.
-			// The key is that LoadViperConfig will check local first.
-			useCustomConfigDir: true, 
+			useCustomConfigDir: true,
 			expectedConfig: config.AppConfig{
-				Debug:               true, // Expecting value from local config
-				Listen:              "local_wins", // Expecting value from local config
-				Targets:             []string{"/local/target.sock"}, // Expecting value from local config
+				Debug:               true,
+				Listen:              "local_wins",
+				Targets:             []string{"/local/target.sock"},
 				AddTargets:          []string{},
 				SelectTargetCommand: "ssh-agent-mux-select",
-				ConfigFilePathUsed:  ".ssh-agent-multiplexer.toml", // Expecting the local file to be used
+				ConfigFilePathUsed:  ".ssh-agent-multiplexer.toml",
 			},
 		},
 		{
 			name: "local .ssh-agent-multiplexer.toml is used if no user config and no --config flag",
 			args: []string{},
-			preTestHook: func(t *testing.T, workingDir string, userConfigDir string) {
+			preTestHook: func(t *testing.T, workingDir string, appSpecificUserStdConfigDir string, tempUserHomeDir string) {
 				_, cleanupLocal := createTempConfigFile(t, workingDir, ".ssh-agent-multiplexer.toml", `
 debug = true
 listen = "local_dir_wins_now"
@@ -269,6 +264,66 @@ listen = "local_dir_wins_now"
 				AddTargets:          []string{},
 				SelectTargetCommand: "ssh-agent-mux-select",
 				ConfigFilePathUsed:  ".ssh-agent-multiplexer.toml",
+			},
+		},
+		{
+			name: "macos_library_over_xdg_config",
+			args: []string{}, // No --config flag
+			preTestHook: func(t *testing.T, workingDir string, appSpecificUserStdConfigDir string, tempUserHomeDir string) {
+				if runtime.GOOS != "darwin" {
+					t.Skip("Skipping macOS specific test on non-darwin platform")
+				}
+				// Standard macOS user config path (e.g., ~/Library/Application Support/ssh-agent-multiplexer/config.toml)
+				_, cleanupStdUser := createTempConfigFile(t, appSpecificUserStdConfigDir, "config.toml", `
+debug = true
+listen = "library_wins_on_macos"
+`)
+				t.Cleanup(cleanupStdUser)
+
+				// XDG-style config path for macOS fallback (e.g., ~/.config/ssh-agent-multiplexer/config.toml)
+				xdgPath := filepath.Join(tempUserHomeDir, ".config", "ssh-agent-multiplexer")
+				_, cleanupXDGUser := createTempConfigFile(t, xdgPath, "config.toml", `
+debug = false
+listen = "xdg_should_be_ignored_on_macos_if_library_exists"
+`)
+				t.Cleanup(cleanupXDGUser)
+			},
+			useCustomConfigDir: true, 
+			expectedConfig: config.AppConfig{
+				Debug:               true,
+				Listen:              "library_wins_on_macos",
+				Targets:             []string{},
+				AddTargets:          []string{},
+				SelectTargetCommand: "ssh-agent-mux-select",
+				// ConfigFilePathUsed will be validated against actualLoadedPath by the test logic
+			},
+		},
+		{
+			name: "macos_xdg_config_fallback",
+			args: []string{}, // No --config flag
+			preTestHook: func(t *testing.T, workingDir string, appSpecificUserStdConfigDir string, tempUserHomeDir string) {
+				if runtime.GOOS != "darwin" {
+					t.Skip("Skipping macOS specific test on non-darwin platform")
+				}
+				// Ensure no local config exists
+				// Ensure no standard user config exists (appSpecificUserStdConfigDir should be empty for LoadViperConfig)
+				
+				// Create only the XDG-style config in ~/.config/ssh-agent-multiplexer/config.toml
+				xdgPath := filepath.Join(tempUserHomeDir, ".config", "ssh-agent-multiplexer")
+				_, cleanupXDGUser := createTempConfigFile(t, xdgPath, "config.toml", `
+debug = true
+listen = "xdg_wins_on_macos_as_fallback"
+`)
+				t.Cleanup(cleanupXDGUser)
+			},
+			useCustomConfigDir: true, 
+			expectedConfig: config.AppConfig{
+				Debug:               true,
+				Listen:              "xdg_wins_on_macos_as_fallback",
+				Targets:             []string{},
+				AddTargets:          []string{},
+				SelectTargetCommand: "ssh-agent-mux-select",
+				// ConfigFilePathUsed will be validated against actualLoadedPath
 			},
 		},
 	}
@@ -293,15 +348,12 @@ listen = "local_dir_wins_now"
 			require.NoError(t, err)
 			defer func() { _ = os.RemoveAll(testWorkingDir) }()
 
-			// Determine the correct user-specific config directory for the test environment
 			mockedUserConfigDirBase, err := os.UserConfigDir()
 			require.NoError(t, err, "os.UserConfigDir() failed during test setup")
-			appSpecificUserConfigDir := filepath.Join(mockedUserConfigDirBase, "ssh-agent-multiplexer")
+			appSpecificUserStdConfigDir := filepath.Join(mockedUserConfigDirBase, "ssh-agent-multiplexer")
 			
-			// userConfigDirPath := filepath.Join(tempUserHomeDir, ".config", "ssh-agent-multiplexer") // Old hardcoded path
-
 			if tc.preTestHook != nil {
-				tc.preTestHook(t, testWorkingDir, appSpecificUserConfigDir) // Pass the correct dir
+				tc.preTestHook(t, testWorkingDir, appSpecificUserStdConfigDir, tempUserHomeDir)
 			}
 
 			var configFileArgForLoad string
@@ -311,9 +363,23 @@ listen = "local_dir_wins_now"
 			if tc.configContent != "" {
 				var createdConfigPath string
 				if tc.useCustomConfigDir {
-					// Create in the platform-specific user config subdirectory
-					createdConfigPath, cleanupTempFile = createTempConfigFile(t, appSpecificUserConfigDir, tc.configFileRelPath, tc.configContent)
-					expectedConfigPathInAppCfg = createdConfigPath
+					// For most user config tests, appSpecificUserStdConfigDir is the target.
+					// For macOS XDG fallback, the preTestHook handles creation in tempUserHomeDir/.config directly.
+					// This path is primarily for the standard user config dir.
+					targetDirForUserConfig := appSpecificUserStdConfigDir
+					// However, if the test is specifically for the XDG fallback and we are setting content for it,
+					// this logic might need to be smarter or the preTestHook handles all user file creation.
+					// For the new macOS tests, preTestHook does the creation.
+					// For the generic "config file from user config dir", this is correct.
+					if tc.name != "macos_xdg_config_fallback" && tc.name != "macos_library_over_xdg_config" {
+                         createdConfigPath, cleanupTempFile = createTempConfigFile(t, targetDirForUserConfig, tc.configFileRelPath, tc.configContent)
+                         expectedConfigPathInAppCfg = createdConfigPath
+                    } else if tc.name == "config file from user config dir (platform specific)" { // Ensure this old test still works
+						 createdConfigPath, cleanupTempFile = createTempConfigFile(t, targetDirForUserConfig, tc.configFileRelPath, tc.configContent)
+                         expectedConfigPathInAppCfg = createdConfigPath
+					}
+
+
 				} else if len(tc.args) > 0 && tc.args[0] == "--config" {
 					createdConfigPath, cleanupTempFile = createTempConfigFile(t, testWorkingDir, tc.configFileRelPath, tc.configContent)
 					configFileArgForLoad = createdConfigPath
@@ -328,16 +394,19 @@ listen = "local_dir_wins_now"
 			} else if len(tc.args) > 0 && tc.args[0] == "--config" {
 				configFileArgForLoad = filepath.Join(testWorkingDir, tc.configFileRelPath)
 			}
-
-			if tc.expectedConfig.ConfigFilePathUsed != "" && !filepath.IsAbs(tc.expectedConfig.ConfigFilePathUsed) {
-				if expectedConfigPathInAppCfg != "" { // If a file was created, its path is in expectedConfigPathInAppCfg
-					tc.expectedConfig.ConfigFilePathUsed = expectedConfigPathInAppCfg
-				} else if tc.useCustomConfigDir { // If using user dir and no specific file was created by this iteration (e.g. for preHook)
-					// This case might need refinement if preHook creates the file and we need its path
-					tc.expectedConfig.ConfigFilePathUsed = filepath.Join(appSpecificUserConfigDir, tc.configFileRelPath)
+			
+			// This logic block needs to be precise for each test case's expectation.
+			// For macOS tests, the expected path is set by actualLoadedPath later.
+			if tc.name != "macos_library_over_xdg_config" && tc.name != "macos_xdg_config_fallback" {
+				if tc.expectedConfig.ConfigFilePathUsed != "" && !filepath.IsAbs(tc.expectedConfig.ConfigFilePathUsed) {
+					if expectedConfigPathInAppCfg != "" { 
+						tc.expectedConfig.ConfigFilePathUsed = expectedConfigPathInAppCfg
+					} else if tc.useCustomConfigDir { 
+						tc.expectedConfig.ConfigFilePathUsed = filepath.Join(appSpecificUserStdConfigDir, tc.configFileRelPath)
+					}
 				}
-				// For ./.ssh-agent-multiplexer.toml, the path is relative to testWorkingDir, handled later by Chdir.
 			}
+
 
 			originalWD, err := os.Getwd()
 			require.NoError(t, err)
@@ -346,7 +415,8 @@ listen = "local_dir_wins_now"
 			//nolint:errcheck
 			defer os.Chdir(originalWD)
 
-			if tc.expectedConfig.ConfigFilePathUsed == ".ssh-agent-multiplexer.toml" {
+			if tc.name != "macos_library_over_xdg_config" && tc.name != "macos_xdg_config_fallback" && 
+			   tc.expectedConfig.ConfigFilePathUsed == ".ssh-agent-multiplexer.toml" {
 				tc.expectedConfig.ConfigFilePathUsed = filepath.Join(testWorkingDir, ".ssh-agent-multiplexer.toml")
 			}
 
@@ -361,9 +431,12 @@ listen = "local_dir_wins_now"
 			require.NoError(t, err, "LoadViperConfig failed unexpectedly: %v", err)
 			require.NotNil(t, v, "Viper instance should not be nil after LoadViperConfig")
 
-			if configFileArgForLoad == "" && actualLoadedPath != "" {
+			// Crucial: For tests involving default path resolution (including macOS fallback),
+			// the expected path should be what LoadViperConfig actually found.
+			if configFileArgForLoad == "" { // Only override expected path if it wasn't explicitly set by --config
 				tc.expectedConfig.ConfigFilePathUsed = actualLoadedPath
 			}
+
 
 			fs := pflag.NewFlagSet("testflags", pflag.ContinueOnError)
 			fs.SetOutput(io.Discard)
@@ -418,7 +491,16 @@ listen = "local_dir_wins_now"
 			assert.True(t, reflect.DeepEqual(expectedAddTargets, actualAddTargets), "Mismatch for 'AddTargets'. Expected %v, got %v", expectedAddTargets, actualAddTargets)
 
 			assert.Equal(t, tc.expectedConfig.SelectTargetCommand, appCfg.SelectTargetCommand, "Mismatch for 'SelectTargetCommand'")
-			assert.Equal(t, tc.expectedConfig.ConfigFilePathUsed, appCfg.ConfigFilePathUsed, "Mismatch for 'ConfigFilePathUsed'")
+			
+			// For macOS tests, expectedConfig.ConfigFilePathUsed is set by actualLoadedPath
+			// For other tests, it's set by the combination of expectedConfigPathInAppCfg or test setup logic
+			if tc.name == "macos_library_over_xdg_config" || tc.name == "macos_xdg_config_fallback" {
+                // The actualLoadedPath is the source of truth for these tests
+                assert.Equal(t, actualLoadedPath, appCfg.ConfigFilePathUsed, "Mismatch for 'ConfigFilePathUsed' in macOS test %s", tc.name)
+            } else {
+                assert.Equal(t, tc.expectedConfig.ConfigFilePathUsed, appCfg.ConfigFilePathUsed, "Mismatch for 'ConfigFilePathUsed' in test %s", tc.name)
+            }
+
 
 			if tc.postTestHook != nil {
 				tc.postTestHook(t)

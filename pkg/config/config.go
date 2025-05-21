@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
@@ -98,6 +99,25 @@ func LoadViperConfig(configFilePathOverride string) (*viper.Viper, string, error
 		return v, "", fmt.Errorf("error reading user config file %s: %w", expectedUserConfigPath, err)
 	}
 	// If user config file also not found, proceed.
+
+	// macOS XDG-style fallback: ~/.config/ssh-agent-multiplexer/config.toml
+	if runtime.GOOS == "darwin" {
+		homeDir := os.Getenv("HOME")
+		if homeDir != "" {
+			xdgMacPath := filepath.Join(homeDir, ".config", "ssh-agent-multiplexer", "config.toml")
+			v.SetConfigFile(xdgMacPath)
+			err = v.ReadInConfig() // Re-assign err from the previous os.UserConfigDir() attempt
+			if err == nil {
+				return v, v.ConfigFileUsed(), nil
+			}
+			// Check if it's a "file not found" error for the XDG-style path.
+			if !(errors.As(err, &configFileNotFoundError) || (errors.As(err, &pathError) && errors.Is(pathError.Err, fs.ErrNotExist))) {
+				// This is not a "file not found" error, so it's a significant error.
+				return v, "", fmt.Errorf("error reading user config file from %s: %w", xdgMacPath, err)
+			}
+			// If XDG-style config file also not found, proceed.
+		}
+	}
 
 	// No Config File Found or used from default paths
 	return v, "", nil

@@ -110,12 +110,22 @@ ssh-agent-multiplexer --config /path/to/your/custom-config.toml
 
 ### Default Search Paths
 
-If the `--config` flag is not used, `ssh-agent-multiplexer` will look for a configuration file in the following locations, in order of precedence:
+If the `--config` or `-c` flag is *not* used, `ssh-agent-multiplexer` will look for a configuration file in the following locations. The first file found will be loaded. The search order varies by operating system:
+
+**On macOS:**
 
 1.  `./.ssh-agent-multiplexer.toml` (in the current working directory)
-2.  `~/.config/ssh-agent-multiplexer/config.toml` (in your user-specific configuration directory)
+2.  `~/Library/Application Support/ssh-agent-multiplexer/config.toml` (Standard macOS user configuration path)
+3.  `~/.config/ssh-agent-multiplexer/config.toml` (XDG-style user configuration path, as a fallback)
 
-The first file found will be loaded.
+**On other systems (e.g., Linux, other Unix-like systems):**
+
+1.  `./.ssh-agent-multiplexer.toml` (in the current working directory)
+2.  Path based on `os.UserConfigDir()`: This typically resolves to:
+    *   `$XDG_CONFIG_HOME/ssh-agent-multiplexer/config.toml` if `$XDG_CONFIG_HOME` is set.
+    *   `~/.config/ssh-agent-multiplexer/config.toml` if `$XDG_CONFIG_HOME` is not set.
+
+The first file found in these ordered lists will be loaded.
 
 ### Precedence of Configuration Sources
 
