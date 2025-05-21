@@ -5,10 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime" // Still needed for OS-specific path construction in tests for xdg default
+	"runtime"
 	"testing"
 
-	"github.com/adrg/xdg" // For xdg.ConfigHome in tests
 	"github.com/everpeace/ssh-agent-multiplexer/pkg/config"
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
@@ -33,7 +32,7 @@ func createTempConfigFile(t *testing.T, dir string, filename string, content str
 	require.NoError(t, err, "Failed to write temp config file")
 
 	cleanup := func() {
-		err := os.RemoveAll(filepath.Dir(tmpfn)) 
+		err := os.RemoveAll(filepath.Dir(tmpfn))
 		if err != nil {
 			t.Logf("Warning: failed to clean up temp config directory %s: %v", filepath.Dir(tmpfn), err)
 		}
@@ -44,26 +43,21 @@ func createTempConfigFile(t *testing.T, dir string, filename string, content str
 type configTestCase struct {
 	name                 string
 	args                 []string
-	configContent        string 
-	configFileRelPath    string 
-	useCustomConfigDir   bool   // True if configContent/configFileRelPath refers to an XDG path (either XDG_CONFIG_HOME or default)
+	configContent        string
+	configFileRelPath    string
+	useCustomConfigDir   bool   // True if configContent/configFileRelPath refers to a user-specific dir (standard or macOS fallback)
 	expectedConfig       config.AppConfig
-	expectLoadError      bool   
-	expectedLoadErrorMsg string 
-	expectParseError     bool   
-	preTestHook          func(t *testing.T, workingDir string, tempUserHomeDir string, tempXDGConfigHome string)
+	expectLoadError      bool
+	expectedLoadErrorMsg string
+	expectParseError     bool
+	preTestHook          func(t *testing.T, workingDir string, appSpecificUserStdConfigDir string, tempUserHomeDir string)
 	postTestHook         func(t *testing.T)
 }
 
 func TestAppConfiguration(t *testing.T) {
 	originalUserHomeDir := os.Getenv("HOME")
-	originalXDGConfigHome := os.Getenv("XDG_CONFIG_HOME")
-
 	//nolint:errcheck
 	defer os.Setenv("HOME", originalUserHomeDir)
-	//nolint:errcheck
-	defer os.Setenv("XDG_CONFIG_HOME", originalXDGConfigHome)
-
 
 	testCases := []configTestCase{
 		{
@@ -88,14 +82,14 @@ targets = ["/target/from/config.sock"]
 add_targets = ["/add/from/config.sock"]
 select_target_command = "custom_select_cmd"
 `,
-			configFileRelPath: "custom_config.toml", // This will be created in testWorkingDir
+			configFileRelPath: "custom_config.toml",
 			expectedConfig: config.AppConfig{
 				Debug:               true,
 				Listen:              "/tmp/custom.sock",
 				Targets:             []string{"/target/from/config.sock"},
 				AddTargets:          []string{"/add/from/config.sock"},
 				SelectTargetCommand: "custom_select_cmd",
-				// ConfigFilePathUsed will be updated by the test to the absolute path
+				// ConfigFilePathUsed will be updated by the test
 			},
 		},
 		{
@@ -113,7 +107,7 @@ debug = true
 listen = "/tmp/default_local.sock"
 targets = ["/target/default_local.sock"]
 `,
-			configFileRelPath: ".ssh-agent-multiplexer.toml", // Created in testWorkingDir
+			configFileRelPath: ".ssh-agent-multiplexer.toml",
 			expectedConfig: config.AppConfig{
 				Debug:               true,
 				Listen:              "/tmp/default_local.sock",
@@ -124,117 +118,106 @@ targets = ["/target/default_local.sock"]
 			},
 		},
 		{
-			name: "xdg_config_home_loads",
-			args: []string{},
-			configContent: `
-debug = true
-listen = "xdg_home_wins"
-`,
-			configFileRelPath:  "ssh-agent-multiplexer/config.toml", // Relative to XDG_CONFIG_HOME
-			useCustomConfigDir: true, // Signals this is an XDG test type
-			preTestHook: func(t *testing.T, workingDir string, tempUserHomeDir string, tempXDGConfigHome string) {
-				// tempXDGConfigHome is already set by the main test loop for this hook
-				// Just need to create the file inside it
-				// The path will be [tempXDGConfigHome]/ssh-agent-multiplexer/config.toml
-				_, cleanup := createTempConfigFile(t, filepath.Join(tempXDGConfigHome, "ssh-agent-multiplexer"), "config.toml", `
-debug = true
-listen = "xdg_home_wins"
-`)
-				t.Cleanup(cleanup)
-			},
-			expectedConfig: config.AppConfig{
-				Debug:               true,
-				Listen:              "xdg_home_wins",
-				SelectTargetCommand: "ssh-agent-mux-select",
-				// ConfigFilePathUsed updated by test
-			},
-		},
-		{
-			name: "xdg_default_user_config_path_loads (no XDG_CONFIG_HOME)",
+			name: "config_file_from_user_config_dir (standard)",
 			args: []string{},
 			configContent: `
 debug = false
-listen = "xdg_default_path_wins"
+listen = "/tmp/user_config_standard.sock"
+add_targets = ["/add/user_config_standard.sock"]
 `,
-			configFileRelPath:  "ssh-agent-multiplexer/config.toml", // Relative to default XDG base
-			useCustomConfigDir: true, // Signals this is an XDG test type
-			preTestHook: func(t *testing.T, workingDir string, tempUserHomeDir string, tempXDGConfigHome string) {
-				// Ensure XDG_CONFIG_HOME is unset for this test case
-				err := os.Unsetenv("XDG_CONFIG_HOME")
-				require.NoError(t, err)
-				// xdg.ConfigHome will now be used by the library, which respects $HOME (mocked to tempUserHomeDir)
-				// The config file needs to be created in the path xdg.SearchConfigFile would find.
-				// xdg.ConfigHome is the base path (e.g. ~/.config or ~/Library/Application Support)
-				// We need to create [xdg.ConfigHome]/ssh-agent-multiplexer/config.toml
-				
-				// Construct the path where xdg.SearchConfigFile will look.
-				// xdg.ConfigHome already includes tempUserHomeDir due to t.Setenv("HOME", tempUserHomeDir)
-				expectedXDGDefaultDir := filepath.Join(xdg.ConfigHome, "ssh-agent-multiplexer")
-
-				_, cleanup := createTempConfigFile(t, expectedXDGDefaultDir, "config.toml", `
-debug = false
-listen = "xdg_default_path_wins"
-`)
-				t.Cleanup(cleanup)
-			},
+			configFileRelPath:  "config.toml", 
+			useCustomConfigDir: true,          
 			expectedConfig: config.AppConfig{
 				Debug:               false,
-				Listen:              "xdg_default_path_wins",
+				Listen:              "/tmp/user_config_standard.sock",
+				Targets:             []string{},
+				AddTargets:          []string{"/add/user_config_standard.sock"},
 				SelectTargetCommand: "ssh-agent-mux-select",
 				// ConfigFilePathUsed updated by test
 			},
 		},
 		{
-			name: "local_file_over_xdg_config",
+			name: "local_directory_config_takes_precedence_over_user_config_dir",
 			args: []string{},
-			preTestHook: func(t *testing.T, workingDir string, tempUserHomeDir string, tempXDGConfigHome string) {
+			preTestHook: func(t *testing.T, workingDir string, appSpecificUserStdConfigDir string, tempUserHomeDir string) {
 				// Local file (should win)
 				_, cleanupLocal := createTempConfigFile(t, workingDir, ".ssh-agent-multiplexer.toml", `
 debug = true
-listen = "local_wins_over_xdg"
+listen = "local_wins"
+targets = ["/local/target.sock"]
 `)
 				t.Cleanup(cleanupLocal)
-
-				// XDG_CONFIG_HOME file (should be ignored)
-				_, cleanupXDG := createTempConfigFile(t, filepath.Join(tempXDGConfigHome, "ssh-agent-multiplexer"), "config.toml", `
+				// Standard user config dir file (should be ignored)
+				_, cleanupUser := createTempConfigFile(t, appSpecificUserStdConfigDir, "config.toml", `
 debug = false
-listen = "xdg_should_be_ignored"
+listen = "user_config_should_be_ignored"
+targets = ["/user/target.sock"]
 `)
-				t.Cleanup(cleanupXDG)
+				t.Cleanup(cleanupUser)
 			},
+			useCustomConfigDir: true, // To ensure appSpecificUserStdConfigDir is calculated and used by preHook
 			expectedConfig: config.AppConfig{
 				Debug:               true,
-				Listen:              "local_wins_over_xdg",
+				Listen:              "local_wins",
+				Targets:             []string{"/local/target.sock"},
+				AddTargets:          []string{},
 				SelectTargetCommand: "ssh-agent-mux-select",
 				// ConfigFilePathUsed updated by test
 			},
 		},
 		{
-			name: "config_flag_over_xdg_and_local",
-			args: []string{"--config", "override.toml"},
-			configContent: ` # This content is for override.toml
+			name: "macos_library_over_dot_config_fallback",
+			args: []string{},
+			preTestHook: func(t *testing.T, workingDir string, appSpecificUserStdConfigDir string, tempUserHomeDir string) {
+				if runtime.GOOS != "darwin" {
+					t.Skip("Skipping macOS specific test on non-darwin platform")
+				}
+				// Standard macOS user config path (e.g., ~/Library/Application Support/ssh-agent-multiplexer/config.toml)
+				// appSpecificUserStdConfigDir is [MockedHOME]/Library/Application Support/ssh-agent-multiplexer on macOS
+				_, cleanupStdUser := createTempConfigFile(t, appSpecificUserStdConfigDir, "config.toml", `
 debug = true
-listen = "flag_override_wins"
-`,
-			configFileRelPath: "override.toml", // Created in testWorkingDir
-			preTestHook: func(t *testing.T, workingDir string, tempUserHomeDir string, tempXDGConfigHome string) {
-				// Local file (should be ignored)
-				_, cleanupLocal := createTempConfigFile(t, workingDir, ".ssh-agent-multiplexer.toml", `
-debug = false
-listen = "local_should_be_ignored_by_flag"
+listen = "library_wins_on_macos"
 `)
-				t.Cleanup(cleanupLocal)
+				t.Cleanup(cleanupStdUser)
 
-				// XDG_CONFIG_HOME file (should be ignored)
-				_, cleanupXDG := createTempConfigFile(t, filepath.Join(tempXDGConfigHome, "ssh-agent-multiplexer"), "config.toml", `
+				// macOS .config fallback path (e.g., ~/.config/ssh-agent-multiplexer/config.toml)
+				dotConfigPath := filepath.Join(tempUserHomeDir, ".config", "ssh-agent-multiplexer")
+				_, cleanupDotConfigUser := createTempConfigFile(t, dotConfigPath, "config.toml", `
 debug = false
-listen = "xdg_should_be_ignored_by_flag"
+listen = "dot_config_should_be_ignored_on_macos_if_library_exists"
 `)
-				t.Cleanup(cleanupXDG)
+				t.Cleanup(cleanupDotConfigUser)
 			},
+			useCustomConfigDir: true, 
 			expectedConfig: config.AppConfig{
 				Debug:               true,
-				Listen:              "flag_override_wins",
+				Listen:              "library_wins_on_macos",
+				SelectTargetCommand: "ssh-agent-mux-select",
+				// ConfigFilePathUsed updated by test
+			},
+		},
+		{
+			name: "macos_dot_config_fallback_loads",
+			args: []string{},
+			preTestHook: func(t *testing.T, workingDir string, appSpecificUserStdConfigDir string, tempUserHomeDir string) {
+				if runtime.GOOS != "darwin" {
+					t.Skip("Skipping macOS specific test on non-darwin platform")
+				}
+				// No local file.
+				// No standard user config file (appSpecificUserStdConfigDir will be empty or non-existent for LoadViperConfig).
+				
+				// macOS .config fallback path (e.g., ~/.config/ssh-agent-multiplexer/config.toml)
+				dotConfigPath := filepath.Join(tempUserHomeDir, ".config", "ssh-agent-multiplexer")
+				_, cleanupDotConfigUser := createTempConfigFile(t, dotConfigPath, "config.toml", `
+debug = true
+listen = "dot_config_wins_on_macos_as_fallback"
+`)
+				t.Cleanup(cleanupDotConfigUser)
+			},
+			useCustomConfigDir: true, 
+			expectedConfig: config.AppConfig{
+				Debug:               true,
+				Listen:              "dot_config_wins_on_macos_as_fallback",
 				SelectTargetCommand: "ssh-agent-mux-select",
 				// ConfigFilePathUsed updated by test
 			},
@@ -247,54 +230,64 @@ listen = "xdg_should_be_ignored_by_flag"
 			require.NoError(t, err)
 			defer func() { _ = os.RemoveAll(tempUserHomeDir) }()
 			
-			// Mock HOME
 			err = os.Setenv("HOME", tempUserHomeDir)
 			require.NoError(t, err)
-			
-			// Mock XDG_CONFIG_HOME for relevant tests, or ensure it's clean for others
-			tempXDGConfigHome, err := os.MkdirTemp("", "xdgconfighome_")
-			require.NoError(t, err)
-			defer func() { _ = os.RemoveAll(tempXDGConfigHome) }()
-			
-			if tc.name == "xdg_config_home_loads" || tc.name == "local_file_over_xdg_config" || tc.name == "config_flag_over_xdg_and_local" {
-				err = os.Setenv("XDG_CONFIG_HOME", tempXDGConfigHome)
-				require.NoError(t, err)
-			} else {
-				// For tests like "xdg_default_user_config_path_loads", ensure XDG_CONFIG_HOME is unset or empty
-				// so adrg/xdg falls back to default behavior based on HOME and OS.
-				err = os.Unsetenv("XDG_CONFIG_HOME")
-				require.NoError(t, err)
-			}
-			// Crucial for xdg library to re-read env vars
-			xdg.Reload()
-
+			// No XDG_CONFIG_HOME manipulation needed for reverted logic.
 
 			testWorkingDir, err := os.MkdirTemp("", "testworkdir_")
 			require.NoError(t, err)
 			defer func() { _ = os.RemoveAll(testWorkingDir) }()
 
+			// This is the directory derived from os.UserConfigDir() using the mocked HOME
+			mockedStdUserConfigDirBase, err := os.UserConfigDir()
+			require.NoError(t, err, "os.UserConfigDir() failed during test setup")
+			appSpecificUserStdConfigDir := filepath.Join(mockedStdUserConfigDirBase, "ssh-agent-multiplexer")
+			
 			if tc.preTestHook != nil {
-				tc.preTestHook(t, testWorkingDir, tempUserHomeDir, tempXDGConfigHome)
+				// Pass tempUserHomeDir for macOS ~/.config fallback creation if needed
+				tc.preTestHook(t, testWorkingDir, appSpecificUserStdConfigDir, tempUserHomeDir)
 			}
 
 			var configFileArgForLoad string
 			var expectedConfigPathForAssertion string 
 
 			if len(tc.args) > 0 && (tc.args[0] == "--config" || tc.args[0] == "-c") {
-				// Config file is specified by flag, create it in testWorkingDir
-				// tc.configFileRelPath is the name of this override file.
-				absPath, cleanup := createTempConfigFile(t, testWorkingDir, tc.configFileRelPath, tc.configContent)
-				defer cleanup()
-				configFileArgForLoad = absPath
-				expectedConfigPathForAssertion = absPath
-			} else if tc.configContent != "" && !tc.useCustomConfigDir {
-				// This is for local .ssh-agent-multiplexer.toml (not XDG related)
-				absPath, cleanup := createTempConfigFile(t, testWorkingDir, tc.configFileRelPath, tc.configContent)
-				defer cleanup()
-				expectedConfigPathForAssertion = absPath
+				// This test case uses the --config flag.
+				// tc.configFileRelPath is the filename for the --config file.
+				// tc.configContent determines if the file should actually be created.
+				if tc.configContent != "" || tc.name == "config file via --config flag, valid TOML" { // Second condition for clarity on existing test
+					// If content is provided, or it's the test that expects a valid (even if empty) file, create it.
+					absPath, cleanup := createTempConfigFile(t, testWorkingDir, tc.configFileRelPath, tc.configContent)
+					defer cleanup()
+					configFileArgForLoad = absPath
+					expectedConfigPathForAssertion = absPath
+				} else {
+					// No content, so this is for testing a non-existent --config file.
+					// Construct the path but don't create the file.
+					configFileArgForLoad = filepath.Join(testWorkingDir, tc.configFileRelPath)
+					expectedConfigPathForAssertion = "" // No file should be loaded
+				}
+			} else if tc.configContent != "" {
+				// For default path tests (not using --config flag) where content is provided.
+				if tc.useCustomConfigDir {
+					// This branch is for user-specific directories (standard or macOS fallback)
+					// The preTestHook is responsible for creating files in these specific locations.
+					// We rely on actualLoadedPath to be the source of truth for expectedConfigPathForAssertion.
+					// If configContent is provided here, it implies a generic user config test.
+					// The macOS specific tests create their files entirely within preTestHook.
+					if tc.name == "config_file_from_user_config_dir (standard)" {
+						absPath, cleanup := createTempConfigFile(t, appSpecificUserStdConfigDir, tc.configFileRelPath, tc.configContent)
+						defer cleanup()
+						expectedConfigPathForAssertion = absPath
+					}
+					// For macOS tests, preTestHook handles file creation.
+				} else { 
+					// Local .ssh-agent-multiplexer.toml
+					absPath, cleanup := createTempConfigFile(t, testWorkingDir, tc.configFileRelPath, tc.configContent)
+					defer cleanup()
+					expectedConfigPathForAssertion = absPath
+				}
 			}
-			// For XDG tests (tc.useCustomConfigDir = true), files are created in preTestHook.
-			// expectedConfigPathForAssertion will be set by actualLoadedPath later for these.
 
 
 			originalWD, err := os.Getwd()
@@ -316,12 +309,10 @@ listen = "xdg_should_be_ignored_by_flag"
 			require.NoError(t, errLoad, "LoadViperConfig failed unexpectedly: %v", errLoad)
 			require.NotNil(t, v, "Viper instance should not be nil after LoadViperConfig")
 
-			if configFileArgForLoad == "" && actualLoadedPath != "" { // A default file was loaded
-				expectedConfigPathForAssertion = actualLoadedPath
-			} else if configFileArgForLoad == "" && actualLoadedPath == "" { // No file loaded
-				expectedConfigPathForAssertion = ""
+			if configFileArgForLoad == "" { // A default path was used or no file found
+				expectedConfigPathForAssertion = actualLoadedPath // actualLoadedPath is the source of truth
 			}
-			// If configFileArgForLoad is not empty, expectedConfigPathForAssertion was set when creating it.
+			// If configFileArgForLoad is not empty, expectedConfigPathForAssertion was set when creating the --config file.
 
 
 			fs := pflag.NewFlagSet("testflags", pflag.ContinueOnError)
@@ -331,7 +322,7 @@ listen = "xdg_should_be_ignored_by_flag"
 			require.NoError(t, err, "DefineAndBindFlags failed: %v")
 
 			pflagArgs := tc.args
-			if configFileArgForLoad != "" { // Filter out --config if it was passed to LoadViperConfig
+			if configFileArgForLoad != "" { 
 				tempArgs := []string{}
 				for i := 0; i < len(tc.args); i++ {
 					if tc.args[i] == "--config" || tc.args[i] == "-c" {
@@ -375,12 +366,9 @@ listen = "xdg_should_be_ignored_by_flag"
 				tc.postTestHook(t)
 			}
 			
-			// Restore original env vars for next test case
 			err = os.Setenv("HOME", originalUserHomeDir)
 			require.NoError(t, err)
-			err = os.Setenv("XDG_CONFIG_HOME", originalXDGConfigHome)
-			require.NoError(t, err)
-			xdg.Reload()
+			// No XDG_CONFIG_HOME to restore as it wasn't set globally by the test loop.
 		})
 	}
 }
