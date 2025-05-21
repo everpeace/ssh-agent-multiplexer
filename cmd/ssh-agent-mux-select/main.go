@@ -4,6 +4,11 @@
 
 package main
 
+var (
+	Version  string
+	Revision string
+)
+
 import (
 	"fmt"
 	"os"
