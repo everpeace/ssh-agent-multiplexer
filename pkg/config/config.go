@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
-	"runtime"
+	// "path/filepath" // No longer needed directly in LoadViperConfig if xdg handles all user paths
+	// "runtime" // No longer needed as xdg handles OS-specifics
 
+	"github.com/adrg/xdg"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
@@ -78,48 +79,36 @@ func LoadViperConfig(configFilePathOverride string) (*viper.Viper, string, error
 		// This is not a "file not found" error, so it's a significant error (e.g., parse error).
 		return v, "", fmt.Errorf("error reading local config %s: %w", localConfigPath, err)
 	}
-	// If it was a "file not found" error, proceed to check user config directory.
+	// If it was a "file not found" error, proceed to check XDG paths.
 
-	// Try User Config Directory
-	userConfigDir, ucdErr := os.UserConfigDir()
-	if ucdErr != nil {
-		// If we can't even get the user config dir path, this is an error worth returning,
-		// as it prevents checking a standard location.
-		return v, "", fmt.Errorf("error getting user config directory path: %w", ucdErr)
-	}
-	expectedUserConfigPath := filepath.Join(userConfigDir, "ssh-agent-multiplexer", "config.toml")
-	v.SetConfigFile(expectedUserConfigPath)
-	err = v.ReadInConfig() // Re-assign err
-	if err == nil {
-		return v, v.ConfigFileUsed(), nil
-	}
-	// Check again if the error is a "file not found" type for the user config file.
-	if !(errors.As(err, &configFileNotFoundError) || (errors.As(err, &pathError) && errors.Is(pathError.Err, fs.ErrNotExist))) {
-		// This is not a "file not found" error, so it's a significant error.
-		return v, "", fmt.Errorf("error reading user config file %s: %w", expectedUserConfigPath, err)
-	}
-	// If user config file also not found, proceed.
-
-	// macOS XDG-style fallback: ~/.config/ssh-agent-multiplexer/config.toml
-	if runtime.GOOS == "darwin" {
-		homeDir := os.Getenv("HOME")
-		if homeDir != "" {
-			xdgMacPath := filepath.Join(homeDir, ".config", "ssh-agent-multiplexer", "config.toml")
-			v.SetConfigFile(xdgMacPath)
-			err = v.ReadInConfig() // Re-assign err from the previous os.UserConfigDir() attempt
-			if err == nil {
-				return v, v.ConfigFileUsed(), nil
-			}
-			// Check if it's a "file not found" error for the XDG-style path.
-			if !(errors.As(err, &configFileNotFoundError) || (errors.As(err, &pathError) && errors.Is(pathError.Err, fs.ErrNotExist))) {
-				// This is not a "file not found" error, so it's a significant error.
-				return v, "", fmt.Errorf("error reading user config file from %s: %w", xdgMacPath, err)
-			}
-			// If XDG-style config file also not found, proceed.
+	// Try XDG Paths
+	xdgConfigFilePath, xdgErr := xdg.SearchConfigFile("ssh-agent-multiplexer/config.toml")
+	if xdgErr == nil { // File found by XDG library
+		v.SetConfigFile(xdgConfigFilePath)
+		err = v.ReadInConfig() // Re-assign err
+		if err == nil {
+			return v, v.ConfigFileUsed(), nil
 		}
+		// If ReadInConfig fails (e.g. parse error), this is a hard error for an existing file.
+		return v, "", fmt.Errorf("error reading XDG config file %s: %w", xdgConfigFilePath, err)
+	} else if !errors.Is(xdgErr, xdg.ErrNotFound) {
+		// An error occurred with xdg.SearchConfigFile itself, other than not finding a file.
+		// This could be a permission issue or other critical setup problem with XDG directories.
+		// For now, as per instruction, we are treating this as non-fatal for loading if it's not ErrNotFound,
+		// but logging or returning might be more robust in a real application.
+		// The instructions said "errors other than ErrNotFound from SearchConfigFile are rare and proceed."
+		// This means if xdgErr is NOT ErrNotFound, we might have an issue.
+		// Let's re-evaluate: if xdgErr is not nil AND not ErrNotFound, it's an unexpected XDG error.
+		// The prompt is a bit ambiguous: "assume errors other than ErrNotFound from SearchConfigFile are rare and proceed."
+		// This implies we *don't* return an error for these rare XDG setup issues and just act like no file was found.
+		// This seems to align with "proceed as if only ErrNotFound is ignorable" if "proceed" means "continue trying other paths"
+		// or in this case, "fall through to no config found".
+		// So, if xdgErr is not nil AND not xdg.ErrNotFound, we simply proceed (treat as if no file found via XDG).
+		// No specific error returned here for xdg internal errors other than file not found.
 	}
+	// If xdgErr is xdg.ErrNotFound, or another error we chose to ignore from xdg.SearchConfigFile, proceed.
 
-	// No Config File Found or used from default paths
+	// No Config File Found through any method
 	return v, "", nil
 }
 

@@ -110,22 +110,21 @@ ssh-agent-multiplexer --config /path/to/your/custom-config.toml
 
 ### Default Search Paths
 
-If the `--config` or `-c` flag is *not* used, `ssh-agent-multiplexer` will look for a configuration file in the following locations. The first file found will be loaded. The search order varies by operating system:
+When the `--config` or `-c` flag is *not* used, `ssh-agent-multiplexer` searches for a configuration file named `config.toml` (or the legacy `.ssh-agent-multiplexer.toml` in the local directory) in the following order:
 
-**On macOS:**
+1.  **Local Directory**: 
+    *   `./.ssh-agent-multiplexer.toml` (in the current working directory). This specific filename is checked first in the local directory for backward compatibility.
 
-1.  `./.ssh-agent-multiplexer.toml` (in the current working directory)
-2.  `~/Library/Application Support/ssh-agent-multiplexer/config.toml` (Standard macOS user configuration path)
-3.  `~/.config/ssh-agent-multiplexer/config.toml` (XDG-style user configuration path, as a fallback)
+2.  **User-Specific XDG Paths**: If a local configuration file is not found, the application searches for `ssh-agent-multiplexer/config.toml` in user-specific configuration directories according to the [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html). The primary path checked is:
+    *   `$XDG_CONFIG_HOME/ssh-agent-multiplexer/config.toml`
 
-**On other systems (e.g., Linux, other Unix-like systems):**
+    If `$XDG_CONFIG_HOME` is not set or is empty, it defaults to:
+    *   `~/.config/ssh-agent-multiplexer/config.toml` on Linux.
+    *   `~/Library/Application Support/ssh-agent-multiplexer/config.toml` on macOS.
+    
+    The underlying library (`github.com/adrg/xdg`) may also search other directories specified by `$XDG_CONFIG_DIRS` if the file is not found in `$XDG_CONFIG_HOME` or its default.
 
-1.  `./.ssh-agent-multiplexer.toml` (in the current working directory)
-2.  Path based on `os.UserConfigDir()`: This typically resolves to:
-    *   `$XDG_CONFIG_HOME/ssh-agent-multiplexer/config.toml` if `$XDG_CONFIG_HOME` is set.
-    *   `~/.config/ssh-agent-multiplexer/config.toml` if `$XDG_CONFIG_HOME` is not set.
-
-The first file found in these ordered lists will be loaded.
+The first configuration file found in this order is loaded.
 
 ### Precedence of Configuration Sources
 
