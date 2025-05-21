@@ -5,44 +5,14 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
-	"strconv"
-	"strings"
+	// "bufio" // No longer needed
+	// "strconv" // No longer needed
+	// "strings" // No longer needed
 )
 
-func promptUserCLIFallback(targets []string, keyInfo string) (string, error) {
-	fmt.Fprintln(os.Stderr, "Failed to display GUI dialog. Falling back to CLI prompt.")
-	if keyInfo != "" {
-		fmt.Fprintf(os.Stderr, "Select a target agent for the key '%s':\n", keyInfo)
-	} else {
-		fmt.Fprintln(os.Stderr, "Select a target agent for the key:")
-	}
-
-	for i, target := range targets {
-		fmt.Fprintf(os.Stderr, "%d: %s\n", i+1, target)
-	}
-
-	fmt.Fprint(os.Stderr, "Enter number: ")
-	reader := bufio.NewReader(os.Stdin)
-	input, err := reader.ReadString('\n')
-	if err != nil {
-		return "", fmt.Errorf("failed to read input: %w", err)
-	}
-
-	input = strings.TrimSpace(input)
-	selection, err := strconv.Atoi(input)
-	if err != nil {
-		return "", fmt.Errorf("invalid input, not a number: %w", err)
-	}
-
-	if selection < 1 || selection > len(targets) {
-		return "", fmt.Errorf("invalid selection: number out of range")
-	}
-
-	return targets[selection-1], nil
-}
+// promptUserCLIFallback function has been moved to ui_common.go
 
 // This function is defined here as a placeholder for non-Darwin/non-Linux builds.
 // It will use the CLI fallback directly.
