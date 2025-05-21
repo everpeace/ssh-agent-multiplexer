@@ -1,3 +1,7 @@
+// Licensed to Shingo Omura under one or more agreements.
+// Shingo Omura licenses this file to you under the Apache 2.0 License.
+// See the LICENSE file in the project root for more information.
+
 package config_test
 
 import (
@@ -45,7 +49,7 @@ type configTestCase struct {
 	args                 []string
 	configContent        string
 	configFileRelPath    string
-	useCustomConfigDir   bool   // True if configContent/configFileRelPath refers to a user-specific dir (standard or macOS fallback)
+	useCustomConfigDir   bool // True if configContent/configFileRelPath refers to a user-specific dir (standard or macOS fallback)
 	expectedConfig       config.AppConfig
 	expectLoadError      bool
 	expectedLoadErrorMsg string
@@ -125,8 +129,8 @@ debug = false
 listen = "/tmp/user_config_standard.sock"
 add_targets = ["/add/user_config_standard.sock"]
 `,
-			configFileRelPath:  "config.toml", 
-			useCustomConfigDir: true,          
+			configFileRelPath:  "config.toml",
+			useCustomConfigDir: true,
 			expectedConfig: config.AppConfig{
 				Debug:               false,
 				Listen:              "/tmp/user_config_standard.sock",
@@ -188,7 +192,7 @@ listen = "dot_config_should_be_ignored_on_macos_if_library_exists"
 `)
 				t.Cleanup(cleanupDotConfigUser)
 			},
-			useCustomConfigDir: true, 
+			useCustomConfigDir: true,
 			expectedConfig: config.AppConfig{
 				Debug:               true,
 				Listen:              "library_wins_on_macos",
@@ -205,7 +209,7 @@ listen = "dot_config_should_be_ignored_on_macos_if_library_exists"
 				}
 				// No local file.
 				// No standard user config file (appSpecificUserStdConfigDir will be empty or non-existent for LoadViperConfig).
-				
+
 				// macOS .config fallback path (e.g., ~/.config/ssh-agent-multiplexer/config.toml)
 				dotConfigPath := filepath.Join(tempUserHomeDir, ".config", "ssh-agent-multiplexer")
 				_, cleanupDotConfigUser := createTempConfigFile(t, dotConfigPath, "config.toml", `
@@ -214,7 +218,7 @@ listen = "dot_config_wins_on_macos_as_fallback"
 `)
 				t.Cleanup(cleanupDotConfigUser)
 			},
-			useCustomConfigDir: true, 
+			useCustomConfigDir: true,
 			expectedConfig: config.AppConfig{
 				Debug:               true,
 				Listen:              "dot_config_wins_on_macos_as_fallback",
@@ -229,7 +233,7 @@ listen = "dot_config_wins_on_macos_as_fallback"
 			tempUserHomeDir, err := os.MkdirTemp("", "userhome_")
 			require.NoError(t, err)
 			defer func() { _ = os.RemoveAll(tempUserHomeDir) }()
-			
+
 			err = os.Setenv("HOME", tempUserHomeDir)
 			require.NoError(t, err)
 			// No XDG_CONFIG_HOME manipulation needed for reverted logic.
@@ -242,14 +246,14 @@ listen = "dot_config_wins_on_macos_as_fallback"
 			mockedStdUserConfigDirBase, err := os.UserConfigDir()
 			require.NoError(t, err, "os.UserConfigDir() failed during test setup")
 			appSpecificUserStdConfigDir := filepath.Join(mockedStdUserConfigDirBase, "ssh-agent-multiplexer")
-			
+
 			if tc.preTestHook != nil {
 				// Pass tempUserHomeDir for macOS ~/.config fallback creation if needed
 				tc.preTestHook(t, testWorkingDir, appSpecificUserStdConfigDir, tempUserHomeDir)
 			}
 
 			var configFileArgForLoad string
-			var expectedConfigPathForAssertion string 
+			var expectedConfigPathForAssertion string
 
 			if len(tc.args) > 0 && (tc.args[0] == "--config" || tc.args[0] == "-c") {
 				// This test case uses the --config flag.
@@ -281,14 +285,13 @@ listen = "dot_config_wins_on_macos_as_fallback"
 						expectedConfigPathForAssertion = absPath
 					}
 					// For macOS tests, preTestHook handles file creation.
-				} else { 
+				} else {
 					// Local .ssh-agent-multiplexer.toml
 					absPath, cleanup := createTempConfigFile(t, testWorkingDir, tc.configFileRelPath, tc.configContent)
 					defer cleanup()
 					expectedConfigPathForAssertion = absPath
 				}
 			}
-
 
 			originalWD, err := os.Getwd()
 			require.NoError(t, err)
@@ -298,7 +301,7 @@ listen = "dot_config_wins_on_macos_as_fallback"
 			defer os.Chdir(originalWD)
 
 			v, actualLoadedPath, errLoad := config.LoadViperConfig(configFileArgForLoad)
-			
+
 			if tc.expectLoadError {
 				require.Error(t, errLoad, "Expected LoadViperConfig to error")
 				if tc.expectedLoadErrorMsg != "" {
@@ -314,7 +317,6 @@ listen = "dot_config_wins_on_macos_as_fallback"
 			}
 			// If configFileArgForLoad is not empty, expectedConfigPathForAssertion was set when creating the --config file.
 
-
 			fs := pflag.NewFlagSet("testflags", pflag.ContinueOnError)
 			fs.SetOutput(io.Discard)
 
@@ -322,18 +324,18 @@ listen = "dot_config_wins_on_macos_as_fallback"
 			require.NoError(t, err, "DefineAndBindFlags failed: %v")
 
 			pflagArgs := tc.args
-			if configFileArgForLoad != "" { 
+			if configFileArgForLoad != "" {
 				tempArgs := []string{}
 				for i := 0; i < len(tc.args); i++ {
 					if tc.args[i] == "--config" || tc.args[i] == "-c" {
-						i++ 
+						i++
 						continue
 					}
 					tempArgs = append(tempArgs, tc.args[i])
 				}
 				pflagArgs = tempArgs
 			}
-			
+
 			err = fs.Parse(pflagArgs)
 			if tc.expectParseError {
 				require.Error(t, err, "Expected fs.Parse to error")
@@ -348,24 +350,32 @@ listen = "dot_config_wins_on_macos_as_fallback"
 			assert.Equal(t, tc.expectedConfig.Listen, appCfg.Listen, "Mismatch for 'Listen'")
 
 			expectedTargets := tc.expectedConfig.Targets
-			if expectedTargets == nil { expectedTargets = []string{} }
+			if expectedTargets == nil {
+				expectedTargets = []string{}
+			}
 			actualTargets := appCfg.Targets
-			if actualTargets == nil { actualTargets = []string{} }
+			if actualTargets == nil {
+				actualTargets = []string{}
+			}
 			assert.True(t, reflect.DeepEqual(expectedTargets, actualTargets), "Mismatch for 'Targets'. Expected %v, got %v", expectedTargets, actualTargets)
 
 			expectedAddTargets := tc.expectedConfig.AddTargets
-			if expectedAddTargets == nil { expectedAddTargets = []string{} }
+			if expectedAddTargets == nil {
+				expectedAddTargets = []string{}
+			}
 			actualAddTargets := appCfg.AddTargets
-			if actualAddTargets == nil { actualAddTargets = []string{} }
+			if actualAddTargets == nil {
+				actualAddTargets = []string{}
+			}
 			assert.True(t, reflect.DeepEqual(expectedAddTargets, actualAddTargets), "Mismatch for 'AddTargets'. Expected %v, got %v", expectedAddTargets, actualAddTargets)
-			
+
 			assert.Equal(t, tc.expectedConfig.SelectTargetCommand, appCfg.SelectTargetCommand, "Mismatch for 'SelectTargetCommand'")
 			assert.Equal(t, expectedConfigPathForAssertion, appCfg.ConfigFilePathUsed, "Mismatch for 'ConfigFilePathUsed' in test %s", tc.name)
 
 			if tc.postTestHook != nil {
 				tc.postTestHook(t)
 			}
-			
+
 			err = os.Setenv("HOME", originalUserHomeDir)
 			require.NoError(t, err)
 			// No XDG_CONFIG_HOME to restore as it wasn't set globally by the test loop.

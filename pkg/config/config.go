@@ -1,3 +1,7 @@
+// Licensed to Shingo Omura under one or more agreements.
+// Shingo Omura licenses this file to you under the Apache 2.0 License.
+// See the LICENSE file in the project root for more information.
+
 // Package config defines the application's configuration structure.
 package config
 
@@ -97,7 +101,6 @@ func LoadViperConfig(configFilePathOverride string) (*viper.Viper, string, error
 		// If file not found, proceed.
 	}
 	// Removed empty else branch for ucdErr != nil
-
 
 	// macOS XDG-style fallback: ~/.config/ssh-agent-multiplexer/config.toml
 	if runtime.GOOS == "darwin" {
