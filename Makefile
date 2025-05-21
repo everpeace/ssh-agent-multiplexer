@@ -19,6 +19,10 @@ build-only:
 lint:
 	$(shell go env GOPATH)/bin/golangci-lint run
 
+.PHONY: test
+test:
+	go test ./pkg/...
+
 .PHONY: fmt
 fmt:
 	$(shell go env GOPATH)/bin/goimports -w ./ pkg/
