@@ -15,17 +15,34 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 )
 
+import (
+	"bytes"
+	"crypto" // Added for crypto.Signer
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+
+	"github.com/rs/zerolog/log"
+	"go.uber.org/multierr"
+	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
+)
+
 var _ agent.ExtendedAgent = &MuxAgent{}
 
 type MuxAgent struct {
-	AddTarget *Agent
-	Targets   []*Agent
+	AddTargets          []*Agent
+	Targets             []*Agent
+	SelectTargetCommand string
 }
 
-func NewMuxAgent(targets []*Agent, addTarget *Agent) agent.Agent {
+func NewMuxAgent(targets []*Agent, addTargets []*Agent, selectTargetCommand string) agent.Agent {
 	return &MuxAgent{
-		AddTarget: addTarget,
-		Targets:   targets,
+		AddTargets:          addTargets,
+		Targets:             targets,
+		SelectTargetCommand: selectTargetCommand,
 	}
 }
 
@@ -150,9 +167,9 @@ func (m *MuxAgent) Signers() ([]ssh.Signer, error) {
 }
 
 func (m *MuxAgent) iterate(f func(a *Agent) bool) {
-	agentsToIterate := make([]*Agent, 0, len(m.Targets)+1)
-	if m.AddTarget != nil {
-		agentsToIterate = append(agentsToIterate, m.AddTarget)
+	agentsToIterate := make([]*Agent, 0, len(m.Targets)+len(m.AddTargets))
+	if len(m.AddTargets) > 0 {
+		agentsToIterate = append(agentsToIterate, m.AddTargets...)
 	}
 	agentsToIterate = append(agentsToIterate, m.Targets...)
 
@@ -171,19 +188,113 @@ func (m *MuxAgent) iterate(f func(a *Agent) bool) {
 
 // Add implements agent.Agent
 func (m *MuxAgent) Add(key agent.AddedKey) error {
-	if m.AddTarget == nil {
+	if len(m.AddTargets) == 0 {
 		log.Error().Msg("Failed to add a key: no add-target specified")
 		return errors.New("add functionality disabled: no add-target specified")
 	}
-	logger := log.With().Str("method", "Add").Str("path", m.AddTarget.path).Logger()
 
-	err := m.AddTarget.Add(key)
+	var selectedAgent *Agent
+
+	if len(m.AddTargets) == 1 {
+		selectedAgent = m.AddTargets[0]
+		log.Debug().Str("path", selectedAgent.path).Msg("Selected single agent for adding key")
+	} else {
+		// Multiple AddTargets
+		if m.SelectTargetCommand == "" {
+			log.Error().Msg("Multiple add-targets specified but no select-target-command configured")
+			return errors.New("multiple add-targets specified but no select-target-command configured")
+		}
+
+		var targetPaths []string
+		for _, agent := range m.AddTargets {
+			targetPaths = append(targetPaths, agent.path)
+		}
+		targetsEnvVar := strings.Join(targetPaths, "\n")
+
+		var targetPaths []string
+		for _, agent := range m.AddTargets {
+			targetPaths = append(targetPaths, agent.path)
+		}
+		targetsEnvVar := strings.Join(targetPaths, "\n")
+
+		// Construct SSH_AGENT_MUX_KEY_INFO
+		var sshPubKey ssh.PublicKey
+		var pubKeyErr error
+		keyInfoParts := []string{}
+
+		if privKey, ok := key.PrivateKey.(crypto.Signer); ok {
+			pub := privKey.Public()
+			sshPubKey, pubKeyErr = ssh.NewPublicKey(pub)
+			if pubKeyErr != nil {
+				log.Warn().Err(pubKeyErr).Msg("Failed to derive ssh.PublicKey from private key's public part")
+			}
+		} else {
+			log.Warn().Msgf("Private key type %T does not implement crypto.Signer, cannot derive public key", key.PrivateKey)
+			pubKeyErr = fmt.Errorf("private key type %T does not implement crypto.Signer", key.PrivateKey)
+		}
+
+		if key.Comment != "" {
+			keyInfoParts = append(keyInfoParts, fmt.Sprintf("COMMENT=%s", key.Comment))
+		} else {
+			keyInfoParts = append(keyInfoParts, "COMMENT=") // Ensure key is present
+		}
+
+		if pubKeyErr == nil && sshPubKey != nil {
+			keyInfoParts = append(keyInfoParts, fmt.Sprintf("TYPE=%s", sshPubKey.Type()))
+			keyInfoParts = append(keyInfoParts, fmt.Sprintf("FINGERPRINT_SHA256=%s", ssh.FingerprintSHA256(sshPubKey)))
+		} else {
+			keyInfoParts = append(keyInfoParts, "TYPE=unknown")
+			keyInfoParts = append(keyInfoParts, "FINGERPRINT_SHA256=unknown")
+		}
+		keyInfoString := strings.Join(keyInfoParts, ";")
+
+		cmd := exec.Command(m.SelectTargetCommand)
+		env := os.Environ()
+		env = append(env, "SSH_AGENT_MUX_TARGETS="+targetsEnvVar)
+		env = append(env, "SSH_AGENT_MUX_KEY_INFO="+keyInfoString)
+		cmd.Env = env
+
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		log.Debug().Str("command", m.SelectTargetCommand).Strs("env_targets", targetPaths).Msg("Executing select-target-command")
+		err := cmd.Run()
+		if err != nil {
+			log.Error().Err(err).Str("command", m.SelectTargetCommand).Str("stderr", stderr.String()).Msg("Failed to execute select-target-command")
+			return fmt.Errorf("failed to execute select-target-command '%s': %w. Stderr: %s", m.SelectTargetCommand, err, stderr.String())
+		}
+
+		selectedTargetPath := strings.TrimSpace(stdout.String())
+		if selectedTargetPath == "" {
+			log.Error().Str("command", m.SelectTargetCommand).Msg("select-target-command returned empty output")
+			return errors.New("select-target-command returned empty output")
+		}
+
+		log.Debug().Str("command", m.SelectTargetCommand).Str("selected_path_raw", stdout.String()).Str("selected_path_trimmed", selectedTargetPath).Msg("select-target-command output")
+
+		for _, agent := range m.AddTargets {
+			if agent.path == selectedTargetPath {
+				selectedAgent = agent
+				break
+			}
+		}
+
+		if selectedAgent == nil {
+			log.Error().Str("command", m.SelectTargetCommand).Str("returned_path", selectedTargetPath).Msg("select-target-command returned an invalid target path")
+			return fmt.Errorf("select-target-command returned an invalid target path: '%s'", selectedTargetPath)
+		}
+		log.Debug().Str("path", selectedAgent.path).Str("command", m.SelectTargetCommand).Msg("Selected agent for adding key via command")
+	}
+
+	logger := log.With().Str("method", "Add").Str("path", selectedAgent.path).Logger()
+	err := selectedAgent.Add(key)
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to add a key")
 		return err
 	}
 
-	logger.Debug().Msg("Added a key")
+	logger.Debug().Msg("Added key")
 	return nil
 }
 
