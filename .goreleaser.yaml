@@ -20,7 +20,7 @@ builds:
 - id: ssh-agent-mux-select   # New build entry
   env:
   - CGO_ENABLED=0
-  main: ./cmd/ssh-agent-mux-select/main.go
+  main: ./cmd/ssh-agent-mux-select/
   binary: ssh-agent-mux-select
   goos: # Assuming same targets as main app
   - linux
