@@ -9,9 +9,9 @@ import (
 	"crypto" // For crypto.Signer
 	"errors"
 	"fmt"
-	"os"     // For os.Environ, exec.Command
-	"os/exec"// For exec.Command
-	"strings"// For strings.Join, etc.
+	"os"      // For os.Environ, exec.Command
+	"os/exec" // For exec.Command
+	"strings" // For strings.Join, etc.
 
 	"github.com/rs/zerolog/log"
 	"go.uber.org/multierr"

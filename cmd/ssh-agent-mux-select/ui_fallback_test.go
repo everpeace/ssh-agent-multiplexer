@@ -153,7 +153,6 @@ func TestPromptUserCLIFallback(t *testing.T) {
 				}
 			}
 
-
 			if tt.expectError {
 				if err == nil {
 					t.Errorf("Expected an error containing '%s', but got nil", tt.errorContent)
@@ -195,7 +194,7 @@ func TestPromptUserCLIFallback_EOFCase(t *testing.T) {
 			t.Logf("EOFCase: Failed to close mockStdinReader in defer: %v", err)
 		}
 	}()
-	
+
 	// Capture stderr
 	originalStderr := os.Stderr
 	var stderrBuf bytes.Buffer
@@ -214,9 +213,8 @@ func TestPromptUserCLIFallback_EOFCase(t *testing.T) {
 		}
 	}()
 
-
 	_, err := promptUserCLIFallback(targets, "test-key")
-	
+
 	if err := wStderr.Close(); err != nil {
 		t.Fatalf("EOFCase: Failed to close wStderr: %v", err) // Fatal as it might affect reading output
 	}

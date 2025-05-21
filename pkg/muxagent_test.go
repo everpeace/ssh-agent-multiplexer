@@ -1,15 +1,19 @@
+// Licensed to Shingo Omura under one or more agreements.
+// Shingo Omura licenses this file to you under the Apache 2.0 License.
+// See the LICENSE file in the project root for more information.
+
 package pkg
 
 import (
 	"crypto/ed25519" // Added from late import
 	"errors"
-	"fmt"             // Added from late import
-	"os"              // Added from late import
-	"os/exec"         // Added from late import
-	"path/filepath"   // Added from late import
+	"fmt"           // Added from late import
+	"os"            // Added from late import
+	"os/exec"       // Added from late import
+	"path/filepath" // Added from late import
 	"reflect"
-	"runtime"         // Added from late import
-	"strings"         // Added from late import
+	"runtime" // Added from late import
+	"strings" // Added from late import
 	"testing"
 
 	"golang.org/x/crypto/ssh" // Keep for ssh.PublicKey if needed by Signers or other methods
@@ -97,7 +101,6 @@ func (m *mockAgent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent.Si
 	// For this test suite, SignWithFlags is not directly tested on the mock.
 	return nil, errors.New("mockAgent.SignWithFlags not implemented")
 }
-
 
 func TestMuxAgent_Add_NoAddTarget(t *testing.T) {
 	muxAgent := NewMuxAgent([]*Agent{}, nil, "") // Targets, AddTargets, SelectTargetCommand
@@ -446,7 +449,6 @@ func main() {
 	}
 }
 
-
 func TestMuxAgent_Add_MultipleAddTargets_CommandReturnsInvalidTarget(t *testing.T) {
 	agent1Path := "agent1.sock"
 	agent2Path := "agent2.sock"
@@ -543,4 +545,3 @@ func main() {
 		t.Errorf("CommandErrorExit: Expected error message to indicate command execution failure, got '%s'", err.Error())
 	}
 }
-

@@ -57,19 +57,19 @@ func TestParseTargetsEnv(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:        "Empty env var value",
-			envVarValue: "",
-			setEnvVar:   true,
-			expected:    nil, // Expecting error, so targets don't matter as much
-			expectError: true,
+			name:         "Empty env var value",
+			envVarValue:  "",
+			setEnvVar:    true,
+			expected:     nil, // Expecting error, so targets don't matter as much
+			expectError:  true,
 			errorContent: "No valid target paths found",
 		},
 		{
-			name:        "Env var with only whitespace",
-			envVarValue: "  \n  \n  ",
-			setEnvVar:   true,
-			expected:    nil,
-			expectError: true,
+			name:         "Env var with only whitespace",
+			envVarValue:  "  \n  \n  ",
+			setEnvVar:    true,
+			expected:     nil,
+			expectError:  true,
 			errorContent: "No valid target paths found",
 		},
 		{
@@ -107,7 +107,7 @@ func TestParseTargetsEnv(t *testing.T) {
 					}
 				}
 			}()
-			
+
 			// This is a simplified representation of main's parsing logic.
 			// main.go itself calls os.Exit, so we're testing the core parsing part here.
 			var actualTargets []string
@@ -117,10 +117,10 @@ func TestParseTargetsEnv(t *testing.T) {
 			if targetsEnvVal == "" && !tt.setEnvVar { // Mimic main's check for unset more accurately
 				// This case is where getenv returns "" and it was because it was unset.
 				// If setenv was called with "", targetsEnvVal would be "", but setEnvVar would be true.
-                 actualError = newError("SSH_AGENT_MUX_TARGETS environment variable not set or empty.")
+				actualError = newError("SSH_AGENT_MUX_TARGETS environment variable not set or empty.")
 			} else if targetsEnvVal == "" && tt.setEnvVar { // set to empty string
-                 actualError = newError("No valid target paths found in SSH_AGENT_MUX_TARGETS.")
-            } else {
+				actualError = newError("No valid target paths found in SSH_AGENT_MUX_TARGETS.")
+			} else {
 				rawTargets := strings.Split(strings.TrimSpace(targetsEnvVal), "\n")
 				for _, t := range rawTargets {
 					if strings.TrimSpace(t) != "" {
@@ -128,10 +128,9 @@ func TestParseTargetsEnv(t *testing.T) {
 					}
 				}
 				if len(actualTargets) == 0 {
-                    actualError = newError("No valid target paths found in SSH_AGENT_MUX_TARGETS.")
+					actualError = newError("No valid target paths found in SSH_AGENT_MUX_TARGETS.")
 				}
 			}
-
 
 			if tt.expectError {
 				if actualError == nil {
@@ -154,7 +153,8 @@ func TestParseTargetsEnv(t *testing.T) {
 // Helper to create error for tests, similar to how main might report simple errors.
 // Needs to be in this file because main.go doesn't export an error type.
 type simpleError string
+
 func (e simpleError) Error() string { return string(e) }
-func newError(msg string) error { return simpleError(msg) }
+func newError(msg string) error     { return simpleError(msg) }
 
 // Late import block for "strings" removed as it's now in the main import block.
