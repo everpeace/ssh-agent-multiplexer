@@ -7,6 +7,7 @@ package main
 import (
 	"os"
 	"reflect"
+	"strings" // Moved from below
 	"testing"
 )
 
@@ -146,7 +147,4 @@ type simpleError string
 func (e simpleError) Error() string { return string(e) }
 func newError(msg string) error { return simpleError(msg) }
 
-// We need strings for the test logic
-import (
-	"strings"
-)
+// Late import block for "strings" removed as it's now in the main import block.

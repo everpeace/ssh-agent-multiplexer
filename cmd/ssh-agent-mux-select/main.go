@@ -4,15 +4,15 @@
 
 package main
 
-var (
-	Version  string
-	Revision string
-)
-
 import (
 	"fmt"
 	"os"
 	"strings"
+)
+
+var (
+	Version  string
+	Revision string
 )
 
 // This function will be implemented in platform-specific files

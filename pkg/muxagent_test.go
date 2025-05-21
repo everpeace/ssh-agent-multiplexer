@@ -1,8 +1,15 @@
 package pkg
 
 import (
+	"crypto/ed25519" // Added from late import
 	"errors"
+	"fmt"             // Added from late import
+	"os"              // Added from late import
+	"os/exec"         // Added from late import
+	"path/filepath"   // Added from late import
 	"reflect"
+	"runtime"         // Added from late import
+	"strings"         // Added from late import
 	"testing"
 
 	"golang.org/x/crypto/ssh" // Keep for ssh.PublicKey if needed by Signers or other methods
@@ -287,16 +294,7 @@ import (
 )
 `
 
-// Need to import ed25519 for key generation
-import (
-	"crypto/ed25519"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
-	"strings"
-	"fmt"
-)
+// Late import block removed, contents merged above.
 
 
 func TestMuxAgent_Add_MultipleAddTargets_CommandSuccess(t *testing.T) {
