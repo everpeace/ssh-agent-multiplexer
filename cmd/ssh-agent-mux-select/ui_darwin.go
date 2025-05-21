@@ -49,7 +49,7 @@ func promptUserForSelection(targets []string, keyInfo string) (string, error) {
 		// For "choose from list", if cancel is hit, exit code is 0 and stdout is empty.
 		// If there's an actual error, stderr will often have info.
 		// ExitError type assertion is important here.
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		if _, ok := err.(*exec.ExitError); ok {
 			// osascript returns exit code 1 on cancel for some dialogs,
 			// but for "choose from list", it's more nuanced.
 			// stdout is empty string with exit code 0 if "Cancel" is pressed.
