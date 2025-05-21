@@ -17,11 +17,11 @@ build-only: build-mux build-select-tool
 
 .PHONY: build-mux
 build-mux:
-	go build $(LDFLAGS) -o $(OUTDIR)/$(NAME) ./main.go
+	go build $(LDFLAGS) -o $(OUTDIR)/$(NAME) ./
 
 .PHONY: build-select-tool
 build-select-tool:
-	go build $(LDFLAGS) -o $(OUTDIR)/$(NAME_SELECT_TOOL) ./cmd/ssh-agent-mux-select/main.go
+	go build $(LDFLAGS) -o $(OUTDIR)/$(NAME_SELECT_TOOL) ./cmd/ssh-agent-mux-select/
 
 .PHONY: lint
 lint:
