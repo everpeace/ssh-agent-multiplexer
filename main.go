@@ -64,9 +64,6 @@ func main() {
 	log.Info().Str("version", Version).Str("revision", Revision).Msg("")
 
 	// validation
-	if addTarget == "" {
-		log.Fatal().Msg("add-target must be specified")
-	}
 	for _, t := range targets {
 		if t == addTarget {
 			log.Fatal().Msg("target paths must not include add-target path")
@@ -100,7 +97,10 @@ func main() {
 	for _, t := range targets {
 		targetAgents = append(targetAgents, pkg.MustNewAgent(t))
 	}
-	addAgent := pkg.MustNewAgent(addTarget)
+	var addAgent *pkg.Agent
+	if addTarget != "" {
+		addAgent = pkg.MustNewAgent(addTarget)
+	}
 	agt := pkg.NewMuxAgent(targetAgents, addAgent)
 	log.Debug().Msg("Succeed to connect all the target agents.")
 

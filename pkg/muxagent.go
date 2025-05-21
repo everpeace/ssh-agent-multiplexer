@@ -150,8 +150,20 @@ func (m *MuxAgent) Signers() ([]ssh.Signer, error) {
 }
 
 func (m *MuxAgent) iterate(f func(a *Agent) bool) {
-	for _, aux := range append([]*Agent{m.AddTarget}, m.Targets...) {
-		if stop := f(aux); stop {
+	agentsToIterate := make([]*Agent, 0, len(m.Targets)+1)
+	if m.AddTarget != nil {
+		agentsToIterate = append(agentsToIterate, m.AddTarget)
+	}
+	agentsToIterate = append(agentsToIterate, m.Targets...)
+
+	for _, agt := range agentsToIterate {
+		// It's possible for an agent in m.Targets to be nil if the input was bad,
+		// though current main.go logic for -t doesn't allow nil agents in m.Targets.
+		// However, a defensive check here is good.
+		if agt == nil {
+			continue
+		}
+		if stop := f(agt); stop {
 			return
 		}
 	}
@@ -159,6 +171,10 @@ func (m *MuxAgent) iterate(f func(a *Agent) bool) {
 
 // Add implements agent.Agent
 func (m *MuxAgent) Add(key agent.AddedKey) error {
+	if m.AddTarget == nil {
+		log.Error().Msg("Failed to add a key: no add-target specified")
+		return errors.New("add functionality disabled: no add-target specified")
+	}
 	logger := log.With().Str("method", "Add").Str("path", m.AddTarget.path).Logger()
 
 	err := m.AddTarget.Add(key)
