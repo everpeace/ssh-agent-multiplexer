@@ -6,8 +6,12 @@ package pkg
 
 import (
 	"bytes"
+	"crypto" // For crypto.Signer
 	"errors"
 	"fmt"
+	"os"     // For os.Environ, exec.Command
+	"os/exec"// For exec.Command
+	"strings"// For strings.Join, etc.
 
 	"github.com/rs/zerolog/log"
 	"go.uber.org/multierr"
@@ -15,20 +19,7 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 )
 
-import (
-	"bytes"
-	"crypto" // Added for crypto.Signer
-	"errors"
-	"fmt"
-	"os"
-	"os/exec"
-	"strings"
-
-	"github.com/rs/zerolog/log"
-	"go.uber.org/multierr"
-	"golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/agent"
-)
+// Second import block removed by consolidation
 
 var _ agent.ExtendedAgent = &MuxAgent{}
 
@@ -204,12 +195,6 @@ func (m *MuxAgent) Add(key agent.AddedKey) error {
 			log.Error().Msg("Multiple add-targets specified but no select-target-command configured")
 			return errors.New("multiple add-targets specified but no select-target-command configured")
 		}
-
-		var targetPaths []string
-		for _, agent := range m.AddTargets {
-			targetPaths = append(targetPaths, agent.path)
-		}
-		targetsEnvVar := strings.Join(targetPaths, "\n")
 
 		var targetPaths []string
 		for _, agent := range m.AddTargets {
