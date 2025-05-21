@@ -2,14 +2,16 @@
 
 This is a small program which multiplexes running ssh agents.
 
-If you have
+If you would like to
 - aggregate two agents `/path/to/work-agent.sock` and `/path/to/personal-agent.sock`
 - use `/path/to/work-agent.sock` for target agent for adding keys (via `ssh-add`), 
 
 just run like this:
 
 ```shell
-# Note: `--add-target` is required.
+# Note: 
+#   --target: for agents which are read-only
+#   --add-target: for agents which can support adding keys via ssh-add
 $ ssh-agents-multiplexer --add-target /path/to/work-agent.sock --target /path/to/personal-agent.sock
 2022-09-28T23:06:59+09:00 INF revision=4b48f3b version=0.0.2
 2022-09-28T23:06:59+09:00 INF Agent multiplexer listening listen=/var/folders/2s/41bhrr7d0r76pkkb9kgjtk0h0000gn/T/ssh-agent-multiplexer-90668.sock
