@@ -13,8 +13,13 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/rs/zerolog"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+)
+
+var (
+	_ zerolog.LogObjectMarshaler = &AppConfig{}
 )
 
 // AppConfig holds the application's configuration values,
@@ -40,6 +45,16 @@ type AppConfig struct {
 	// ConfigFilePathUsed stores the path of the configuration file that was loaded.
 	// This will be empty if no configuration file was used.
 	ConfigFilePathUsed string
+}
+
+// MarshalZerologObject implements zerolog.LogObjectMarshaler.
+func (a *AppConfig) MarshalZerologObject(e *zerolog.Event) {
+	e.Str("listen", a.Listen).
+		Strs("targets", a.Targets).
+		Strs("addTargets", a.AddTargets).
+		Str("selectTargetCommand", a.SelectTargetCommand).
+		Bool("debug", a.Debug).
+		Str("configFilePathUsed", a.ConfigFilePathUsed)
 }
 
 // LoadViperConfig initializes a new Viper instance, sets up configuration paths,

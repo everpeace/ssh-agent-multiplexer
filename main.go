@@ -106,6 +106,7 @@ func main() {
 	if appCfg.ConfigFilePathUsed != "" {
 		log.Info().Str("path", appCfg.ConfigFilePathUsed).Msg("Loaded configuration from")
 	}
+	log.Info().Object("config", appCfg).Msg("Effective config")
 
 	// 9. Validation (using appCfg)
 	for _, t := range appCfg.Targets {
@@ -161,6 +162,7 @@ func main() {
 	log.Debug().Msg("Succeed to connect all the target agents.")
 
 	// Main accept loop
+	log.Info().Str("listen", effectiveListen).Msg("SSH Agent Multiplexer listening")
 	for {
 		c, err := l.Accept()
 		if err != nil {
