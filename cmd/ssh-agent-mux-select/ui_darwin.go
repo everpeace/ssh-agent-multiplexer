@@ -10,33 +10,36 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
 
 func promptUserForSelection(targets []string, keyInfo string) (string, error) {
-	var script strings.Builder
-	script.WriteString(`'Tell application "System Events" to choose from list {`)
-	for i, target := range targets {
-		if i > 0 {
-			script.WriteString(", ")
-		}
+	appleScriptTemplate := `
+set promptSentence to "%s"
+set agentChoice to {%s}
+set selectedAgent to choose from list agentChoice with prompt promptSentence cancel button name "Cancel" OK button name "Select"
+selectedAgent
+`
+
+	escapedTargets := []string{}
+	for _, target := range targets {
 		// Escape double quotes in target paths for AppleScript string literals
 		escapedTarget := strings.ReplaceAll(target, `"`, `\\"`)
-		script.WriteString(`"` + escapedTarget + `"`)
+		escapedTargets = append(escapedTargets, fmt.Sprintf(`"%s"`, escapedTarget))
 	}
-	script.WriteString(`} with prompt "`)
 
-	promptMessage := "Select SSH Key Target:"
+	promptMessage := "[ssh-agent-multiplexer]\nSelect SSH Agent"
 	if keyInfo != "" {
 		// Escape double quotes in keyInfo for AppleScript string literals
 		escapedKeyInfo := strings.ReplaceAll(keyInfo, `"`, `\\"`)
-		promptMessage = fmt.Sprintf("Select SSH Key Target for key '%s':", escapedKeyInfo)
+		promptMessage += fmt.Sprintf(" for key '%s'", escapedKeyInfo)
 	}
-	script.WriteString(promptMessage)
-	script.WriteString(`" default items {"` + strings.ReplaceAll(targets[0], `"`, `\\"`) + `"} cancel button name "Cancel" OK button name "Select"'`)
 
-	cmd := exec.Command("osascript", "-e", script.String())
+	appleScript := fmt.Sprintf(appleScriptTemplate, promptMessage, strings.Join(escapedTargets, ","))
+	cmd := exec.Command("osascript", "-e", appleScript)
+
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
