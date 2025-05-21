@@ -44,7 +44,7 @@ func main() {
 	pflag.StringVarP(&listen, "listen", "l", "", "socket path to listen for the multiplexer. it is generated automatically if not set")
 	pflag.StringSliceVarP(&targets, "target", "t", nil, "path of target agent to proxy. you can specify this option multiple times")
 	pflag.StringSliceVarP(&addTargets, "add-target", "a", nil, "path of target agent for ssh-add command. Can be specified multiple times.")
-	pflag.StringVar(&selectTargetCommand, "select-target-command", "", "command to execute to select a target when multiple --add-target agents are specified")
+	pflag.StringVar(&selectTargetCommand, "select-target-command", "ssh-agent-mux-select", "command to execute to select a target when multiple --add-target agents are specified.")
 	pflag.Parse()
 
 	if *help {
