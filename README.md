@@ -96,6 +96,68 @@ This project now bundles a helper tool named `ssh-agent-mux-select`. If you've i
 
 You can, of course, write your own custom scripts or commands to use with `--select-target-command` if `ssh-agent-mux-select` doesn't fit your specific workflow or if you prefer a different UI/UX for selection. Your custom script just needs to read the `SSH_AGENT_MUX_TARGETS` environment variable and print the chosen agent path to stdout.
 
+## Configuration File
+
+`ssh-agent-multiplexer` now supports configuration via a TOML (Tom's Obvious, Minimal Language) file. This allows you to set your preferred defaults without needing to specify them as command-line flags every time.
+
+### Specifying a Configuration File
+
+You can specify a custom configuration file path using the `--config` (or `-c`) command-line flag:
+
+```shell
+ssh-agent-multiplexer --config /path/to/your/custom-config.toml
+```
+
+### Default Search Paths
+
+If the `--config` flag is not used, `ssh-agent-multiplexer` will look for a configuration file in the following locations, in order of precedence:
+
+1.  `./.ssh-agent-multiplexer.toml` (in the current working directory)
+2.  `~/.config/ssh-agent-multiplexer/config.toml` (in your user-specific configuration directory)
+
+The first file found will be loaded.
+
+### Precedence of Configuration Sources
+
+Configuration values are determined with the following precedence (highest to lowest):
+
+1.  **Command-line arguments:** Flags passed directly when running the program (e.g., `--debug`, `--listen /tmp/my.sock`).
+2.  **Configuration file values:** Settings defined in the loaded TOML configuration file.
+3.  **Built-in default values:** Default values for options if not specified by flags or a config file (e.g., `select-target-command` defaults to `ssh-agent-mux-select`).
+
+### Example Configuration File
+
+Here is an example of a TOML configuration file (`.ssh-agent-multiplexer.toml` or `config.toml`) showing all available options:
+
+```toml
+# Example ssh-agent-multiplexer configuration file
+
+# Enable debug logging
+debug = false
+
+# Socket path for the multiplexer to listen on.
+# If commented out or not set, a path is auto-generated in the system's temporary directory.
+# listen = "/path/to/your/mux.sock"
+
+# Agents to proxy for read-only operations (equivalent to --target or -t flag).
+targets = [
+  # "/path/to/example/readonly-agent1.sock",
+  # "/path/to/example/readonly-agent2.sock"
+]
+
+# Agents that can handle adding keys via ssh-add (equivalent to --add-target or -a flag).
+# The TOML key is "add_targets".
+add_targets = [
+  # "/path/to/example/writable-agent1.sock"
+]
+
+# Command to use for selecting an agent when multiple add_targets are specified.
+# (equivalent to --select-target-command flag). The TOML key is "select_target_command".
+# select_target_command = "ssh-agent-mux-select" # This is the built-in default
+```
+
+The keys in the TOML file generally map to their respective command-line flags. For flags that can be specified multiple times (like `--target` and `--add-target`), these are represented as arrays in the TOML file.
+
 ## Release
 
 The release process is fully automated by [tagpr](https://github.com/Songmu/tagpr). To release, just merge [the latest release PR](https://github.com/everpeace/ssh-agent-multiplexer/pulls?q=is:pr+is:open+label:tagpr).
