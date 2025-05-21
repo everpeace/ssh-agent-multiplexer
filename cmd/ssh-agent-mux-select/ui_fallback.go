@@ -2,6 +2,9 @@
 // Shingo Omura licenses this file to you under the Apache 2.0 License.
 // See the LICENSE file in the project root for more information.
 
+//go:build !darwin && !linux
+// +build !darwin,!linux
+
 package main
 
 import (
@@ -30,8 +33,7 @@ import (
 // Let's provide a default implementation of promptUserForSelection that calls the CLI.
 // This will be overridden by platform-specific versions due to build tags.
 
-//go:build !darwin && !linux
-// +build !darwin,!linux
+// Build tags moved to the top of the file.
 
 func promptUserForSelection(targets []string, keyInfo string) (string, error) {
 	fmt.Fprintln(os.Stderr, "No platform-specific UI available, using CLI fallback.")
