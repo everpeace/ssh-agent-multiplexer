@@ -2,7 +2,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -48,61 +50,57 @@ type AppConfig struct {
 //     when searching default paths, which is not treated as an error).
 func LoadViperConfig(configFilePathOverride string) (*viper.Viper, string, error) {
 	v := viper.New()
-	v.SetConfigType("toml")
+	// No need to set v.SetConfigType("toml") if SetConfigFile includes the extension.
 
-	var configFileUsed string
-
+	// Handle configFilePathOverride
 	if configFilePathOverride != "" {
 		v.SetConfigFile(configFilePathOverride)
-		if err := v.ReadInConfig(); err != nil {
-			// If a specific file is given and not found, or any other read error, it's an error.
+		err := v.ReadInConfig()
+		if err != nil {
+			// Any error is fatal if a specific config file is provided.
 			return v, "", fmt.Errorf("failed to read specified config file %s: %w", configFilePathOverride, err)
 		}
-		configFileUsed = v.ConfigFileUsed()
-	} else {
-		// Search in default locations
-
-		// 1. Current directory: ./.ssh-agent-multiplexer.toml
-		v.AddConfigPath(".")
-		v.SetConfigName(".ssh-agent-multiplexer") // Look for .ssh-agent-multiplexer.toml
-
-		err := v.ReadInConfig()
-		if err == nil {
-			configFileUsed = v.ConfigFileUsed()
-			return v, configFileUsed, nil // Successfully read from current dir
-		}
-
-		// If error is not "file not found", then it's a real parsing error.
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return v, "", fmt.Errorf("error reading config from ./'.ssh-agent-multiplexer.toml': %w", err)
-		}
-
-		// File not found in current dir, try user config dir.
-		// Reset config name for the next search path if AddConfigPath is used with SetConfigName.
-		// Alternatively, and more robustly, create a new viper instance or clear paths if necessary.
-		// For this case, we will set a specific file path for the user directory to avoid ambiguity with SetConfigName.
-		
-		userConfigDir, err := os.UserConfigDir()
-		if err == nil {
-			userConfigFilePath := filepath.Join(userConfigDir, "ssh-agent-multiplexer", "config.toml")
-			v.SetConfigFile(userConfigFilePath) // Explicitly set this path
-			
-			errRead := v.ReadInConfig()
-			if errRead == nil {
-				configFileUsed = v.ConfigFileUsed()
-				return v, configFileUsed, nil // Successfully read from user config dir
-			}
-			if _, ok := errRead.(viper.ConfigFileNotFoundError); !ok {
-				// If it's not a "file not found" error, then it's a real parsing error for the user config file.
-				return v, "", fmt.Errorf("error reading config from user config directory %s: %w", userConfigFilePath, errRead)
-			}
-			// If user config file is also not found, it's okay, proceed without error.
-		}
-		// If os.UserConfigDir() failed or file not found in user dir, proceed silently.
-		// At this point, no config file was found in default locations, which is not an error.
+		return v, v.ConfigFileUsed(), nil
 	}
 
-	return v, configFileUsed, nil
+	// Try Local Directory (./.ssh-agent-multiplexer.toml)
+	localConfigPath := "./.ssh-agent-multiplexer.toml"
+	v.SetConfigFile(localConfigPath)
+	err := v.ReadInConfig()
+	if err == nil {
+		return v, v.ConfigFileUsed(), nil
+	}
+	// Check if the error is a "file not found" type.
+	var configFileNotFoundError viper.ConfigFileNotFoundError
+	var pathError *fs.PathError
+	if !(errors.As(err, &configFileNotFoundError) || (errors.As(err, &pathError) && errors.Is(pathError.Err, fs.ErrNotExist))) {
+		// This is not a "file not found" error, so it's a significant error (e.g., parse error).
+		return v, "", fmt.Errorf("error reading local config %s: %w", localConfigPath, err)
+	}
+	// If it was a "file not found" error, proceed to check user config directory.
+
+	// Try User Config Directory
+	userConfigDir, ucdErr := os.UserConfigDir()
+	if ucdErr != nil {
+		// If we can't even get the user config dir path, this is an error worth returning,
+		// as it prevents checking a standard location.
+		return v, "", fmt.Errorf("error getting user config directory path: %w", ucdErr)
+	}
+	expectedUserConfigPath := filepath.Join(userConfigDir, "ssh-agent-multiplexer", "config.toml")
+	v.SetConfigFile(expectedUserConfigPath)
+	err = v.ReadInConfig() // Re-assign err
+	if err == nil {
+		return v, v.ConfigFileUsed(), nil
+	}
+	// Check again if the error is a "file not found" type for the user config file.
+	if !(errors.As(err, &configFileNotFoundError) || (errors.As(err, &pathError) && errors.Is(pathError.Err, fs.ErrNotExist))) {
+		// This is not a "file not found" error, so it's a significant error.
+		return v, "", fmt.Errorf("error reading user config file %s: %w", expectedUserConfigPath, err)
+	}
+	// If user config file also not found, proceed.
+
+	// No Config File Found or used from default paths
+	return v, "", nil
 }
 
 // DefineAndBindFlags defines the application's command-line flags on the provided FlagSet

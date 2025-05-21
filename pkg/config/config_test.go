@@ -220,29 +220,36 @@ select_target_command = ""
 			},
 		},
 		{
-			name: "user config dir has precedence over local .ssh-agent-multiplexer.toml if --config not used",
-			args: []string{},
+			name: "local_directory_config_takes_precedence_over_user_config_dir",
+			args: []string{}, // No --config flag
 			preTestHook: func(t *testing.T, workingDir string, userConfigDir string) {
-				_, cleanupUser := createTempConfigFile(t, userConfigDir, "config.toml", `
-debug = true
-listen = "user_config_dir_wins"
-`)
-				t.Cleanup(cleanupUser)
-
+				// Create a config in the local working dir (this one should win)
 				_, cleanupLocal := createTempConfigFile(t, workingDir, ".ssh-agent-multiplexer.toml", `
-debug = false
-listen = "local_dir_should_be_ignored"
+debug = true
+listen = "local_wins"
+targets = ["/local/target.sock"]
 `)
 				t.Cleanup(cleanupLocal)
+
+				// Create a config in the user config dir (this one should be ignored)
+				_, cleanupUser := createTempConfigFile(t, userConfigDir, "config.toml", `
+debug = false
+listen = "user_config_should_be_ignored"
+targets = ["/user/target.sock"]
+`)
+				t.Cleanup(cleanupUser)
 			},
-			useCustomConfigDir: true,
+			// useCustomConfigDir is not strictly needed here as we are testing the interaction,
+			// but the preTestHook uses userConfigDir, so HOME mocking is relevant.
+			// The key is that LoadViperConfig will check local first.
+			useCustomConfigDir: true, 
 			expectedConfig: config.AppConfig{
-				Debug:               true,
-				Listen:              "user_config_dir_wins",
-				Targets:             []string{},
+				Debug:               true, // Expecting value from local config
+				Listen:              "local_wins", // Expecting value from local config
+				Targets:             []string{"/local/target.sock"}, // Expecting value from local config
 				AddTargets:          []string{},
 				SelectTargetCommand: "ssh-agent-mux-select",
-				ConfigFilePathUsed:  filepath.Join("mocked_user_home", ".config", "ssh-agent-multiplexer", "config.toml"),
+				ConfigFilePathUsed:  ".ssh-agent-multiplexer.toml", // Expecting the local file to be used
 			},
 		},
 		{
@@ -286,10 +293,15 @@ listen = "local_dir_wins_now"
 			require.NoError(t, err)
 			defer func() { _ = os.RemoveAll(testWorkingDir) }()
 
-			userConfigDirPath := filepath.Join(tempUserHomeDir, ".config", "ssh-agent-multiplexer")
+			// Determine the correct user-specific config directory for the test environment
+			mockedUserConfigDirBase, err := os.UserConfigDir()
+			require.NoError(t, err, "os.UserConfigDir() failed during test setup")
+			appSpecificUserConfigDir := filepath.Join(mockedUserConfigDirBase, "ssh-agent-multiplexer")
+			
+			// userConfigDirPath := filepath.Join(tempUserHomeDir, ".config", "ssh-agent-multiplexer") // Old hardcoded path
 
 			if tc.preTestHook != nil {
-				tc.preTestHook(t, testWorkingDir, userConfigDirPath)
+				tc.preTestHook(t, testWorkingDir, appSpecificUserConfigDir) // Pass the correct dir
 			}
 
 			var configFileArgForLoad string
@@ -299,7 +311,8 @@ listen = "local_dir_wins_now"
 			if tc.configContent != "" {
 				var createdConfigPath string
 				if tc.useCustomConfigDir {
-					createdConfigPath, cleanupTempFile = createTempConfigFile(t, userConfigDirPath, tc.configFileRelPath, tc.configContent)
+					// Create in the platform-specific user config subdirectory
+					createdConfigPath, cleanupTempFile = createTempConfigFile(t, appSpecificUserConfigDir, tc.configFileRelPath, tc.configContent)
 					expectedConfigPathInAppCfg = createdConfigPath
 				} else if len(tc.args) > 0 && tc.args[0] == "--config" {
 					createdConfigPath, cleanupTempFile = createTempConfigFile(t, testWorkingDir, tc.configFileRelPath, tc.configContent)
@@ -317,11 +330,13 @@ listen = "local_dir_wins_now"
 			}
 
 			if tc.expectedConfig.ConfigFilePathUsed != "" && !filepath.IsAbs(tc.expectedConfig.ConfigFilePathUsed) {
-				if expectedConfigPathInAppCfg != "" {
+				if expectedConfigPathInAppCfg != "" { // If a file was created, its path is in expectedConfigPathInAppCfg
 					tc.expectedConfig.ConfigFilePathUsed = expectedConfigPathInAppCfg
-				} else if tc.useCustomConfigDir {
-					tc.expectedConfig.ConfigFilePathUsed = filepath.Join(userConfigDirPath, tc.configFileRelPath)
+				} else if tc.useCustomConfigDir { // If using user dir and no specific file was created by this iteration (e.g. for preHook)
+					// This case might need refinement if preHook creates the file and we need its path
+					tc.expectedConfig.ConfigFilePathUsed = filepath.Join(appSpecificUserConfigDir, tc.configFileRelPath)
 				}
+				// For ./.ssh-agent-multiplexer.toml, the path is relative to testWorkingDir, handled later by Chdir.
 			}
 
 			originalWD, err := os.Getwd()
