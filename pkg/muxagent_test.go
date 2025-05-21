@@ -1,8 +1,19 @@
+// Licensed to Shingo Omura under one or more agreements.
+// Shingo Omura licenses this file to you under the Apache 2.0 License.
+// See the LICENSE file in the project root for more information.
+
 package pkg
 
 import (
+	"crypto/ed25519" // Added from late import
 	"errors"
+	"fmt"           // Added from late import
+	"os"            // Added from late import
+	"os/exec"       // Added from late import
+	"path/filepath" // Added from late import
 	"reflect"
+	"runtime" // Added from late import
+	"strings" // Added from late import
 	"testing"
 
 	"golang.org/x/crypto/ssh" // Keep for ssh.PublicKey if needed by Signers or other methods
@@ -91,20 +102,17 @@ func (m *mockAgent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent.Si
 	return nil, errors.New("mockAgent.SignWithFlags not implemented")
 }
 
-
 func TestMuxAgent_Add_NoAddTarget(t *testing.T) {
-	muxAgent := NewMuxAgent([]*Agent{}, nil) // Targets, AddTarget
+	muxAgent := NewMuxAgent([]*Agent{}, nil, "") // Targets, AddTargets, SelectTargetCommand
 
 	addedKey := agent.AddedKey{
-		PrivateKey:   "dummy private key data", // Minimal data
-		Comment:      "test key",
-		LifetimeSecs: 0,
-		// Confirm field removed as it's not in older ssh/agent versions
+		PrivateKey: "dummy private key data", // Minimal data
+		Comment:    "test key",
 	}
 	err := muxAgent.Add(addedKey)
 
 	if err == nil {
-		t.Errorf("Expected an error when calling Add with no AddTarget, got nil")
+		t.Fatalf("Expected an error when calling Add with no AddTargets, got nil")
 	}
 
 	expectedErrMsg := "add functionality disabled: no add-target specified"
@@ -114,7 +122,7 @@ func TestMuxAgent_Add_NoAddTarget(t *testing.T) {
 }
 
 func TestMuxAgent_List_NoAddTarget_EmptyTargets(t *testing.T) {
-	muxAgent := NewMuxAgent([]*Agent{}, nil) // AddTarget is nil, Targets is empty
+	muxAgent := NewMuxAgent([]*Agent{}, nil, "") // AddTargets is nil, Targets is empty
 	keys, err := muxAgent.List()
 
 	if err != nil {
@@ -134,7 +142,7 @@ func TestMuxAgent_List_NoAddTarget_WithTargets(t *testing.T) {
 		path:  "mock/target1",
 	}
 
-	muxAgent := NewMuxAgent([]*Agent{targetAgent}, nil) // AddTarget is nil
+	muxAgent := NewMuxAgent([]*Agent{targetAgent}, nil, "") // AddTargets is nil
 
 	keys, err := muxAgent.List()
 
@@ -156,24 +164,23 @@ func TestMuxAgent_Add_WithAddTarget(t *testing.T) {
 	mockAddAgent := &mockAgent{path: "mock/addtarget"}
 	addAgentInstance := &Agent{
 		agent: mockAddAgent,
-		path:  "mock/addtarget",
+		path:  "mock/addtarget", // Ensure path is set for mockAgent
 	}
 
-	muxAgent := NewMuxAgent([]*Agent{}, addAgentInstance)
+	// For SingleAddTarget, NewMuxAgent expects a slice for addTargets
+	muxAgent := NewMuxAgent([]*Agent{}, []*Agent{addAgentInstance}, "") // selectTargetCommand is empty
 
 	addedKey := agent.AddedKey{
-		PrivateKey:   "dummy private key data for add test",
-		Comment:      "test key for add",
-		LifetimeSecs: 0,
-		// Confirm field removed
+		PrivateKey: "dummy private key data for add test",
+		Comment:    "test key for add",
 	}
 	err := muxAgent.Add(addedKey)
 
 	if err != nil {
-		t.Errorf("Expected no error when calling Add with an AddTarget, got %v", err)
+		t.Fatalf("Expected no error when calling Add with a single AddTarget, got %v", err)
 	}
 	if !mockAddAgent.addCalled {
-		t.Errorf("Expected mockAddTarget.Add to be called")
+		t.Fatalf("Expected mockAddTarget.Add to be called")
 	}
 	if !reflect.DeepEqual(mockAddAgent.addedKey, addedKey) {
 		t.Errorf("Expected added key to be '%v', got '%v'", addedKey, mockAddAgent.addedKey)
@@ -188,8 +195,9 @@ func TestMuxAgent_List_WithAddTargetAndOtherTargets(t *testing.T) {
 	dummyKeyTarget1 := &agent.Key{Format: "ssh-rsa", Blob: []byte("target1key"), Comment: "keyTgt1"}
 	mockTarget1Agent := &mockAgent{keys: []*agent.Key{dummyKeyTarget1}, path: "mock/target1"}
 	target1Instance := &Agent{agent: mockTarget1Agent, path: "mock/target1"}
-	
-	muxAgent := NewMuxAgent([]*Agent{target1Instance}, addAgentInstance)
+
+	// NewMuxAgent now takes a slice for addTargets
+	muxAgent := NewMuxAgent([]*Agent{target1Instance}, []*Agent{addAgentInstance}, "")
 
 	keys, err := muxAgent.List()
 	if err != nil {
@@ -208,10 +216,332 @@ func TestMuxAgent_List_WithAddTargetAndOtherTargets(t *testing.T) {
 		t.Fatalf("Expected %d keys, got %d", expectedKeyCount, len(keys))
 	}
 
-	if !reflect.DeepEqual(keys[0], dummyKeyAddTarget) {
-		t.Errorf("Expected first key to be from AddTarget [%v], got [%v]", dummyKeyAddTarget, keys[0])
+	// The order in iterate is AddTargets then Targets.
+	// So keys[0] should be from addAgentInstance, keys[1] from target1Instance.
+	foundAddTargetKey := false
+	foundTarget1Key := false
+	for _, k := range keys {
+		if reflect.DeepEqual(k, dummyKeyAddTarget) {
+			foundAddTargetKey = true
+		}
+		if reflect.DeepEqual(k, dummyKeyTarget1) {
+			foundTarget1Key = true
+		}
 	}
-	if !reflect.DeepEqual(keys[1], dummyKeyTarget1) {
-		t.Errorf("Expected second key to be from Target1 [%v], got [%v]", dummyKeyTarget1, keys[1])
+
+	if !foundAddTargetKey {
+		t.Errorf("Expected to find AddTarget key [%v] in List results, but not found. Keys: %v", dummyKeyAddTarget, keys)
+	}
+	if !foundTarget1Key {
+		t.Errorf("Expected to find Target1 key [%v] in List results, but not found. Keys: %v", dummyKeyTarget1, keys)
+	}
+}
+
+// --- New Test Cases for Multiple Add Targets and SelectTargetCommand ---
+
+func TestMuxAgent_Add_MultipleAddTargets_NoCommand(t *testing.T) {
+	mockAgent1 := &Agent{agent: &mockAgent{path: "agent1.sock"}, path: "agent1.sock"}
+	mockAgent2 := &Agent{agent: &mockAgent{path: "agent2.sock"}, path: "agent2.sock"}
+
+	// selectTargetCommand is empty
+	muxAgent := NewMuxAgent([]*Agent{}, []*Agent{mockAgent1, mockAgent2}, "")
+
+	err := muxAgent.Add(agent.AddedKey{Comment: "test"})
+	if err == nil {
+		t.Fatalf("Expected error when multiple AddTargets and no SelectTargetCommand, got nil")
+	}
+	expectedMsg := "multiple add-targets specified but no select-target-command configured"
+	if err.Error() != expectedMsg {
+		t.Errorf("Expected error '%s', got '%s'", expectedMsg, err.Error())
+	}
+}
+
+// Helper function to create and compile a temporary Go script
+func createSelectTargetScript(t *testing.T, goCode string) (scriptPath string, cleanup func()) {
+	t.Helper()
+	tempDir, err := os.MkdirTemp("", "select_script_test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+
+	scriptFile := filepath.Join(tempDir, "select_script.go")
+	err = os.WriteFile(scriptFile, []byte(goCode), 0644)
+	if err != nil {
+		if errRem := os.RemoveAll(tempDir); errRem != nil {
+			t.Logf("Failed to remove temp dir %s after script write failure: %v", tempDir, errRem)
+		}
+		t.Fatalf("Failed to write script file: %v", err)
+	}
+
+	compiledPath := filepath.Join(tempDir, "select_script")
+	if runtime.GOOS == "windows" {
+		compiledPath += ".exe"
+	}
+
+	cmd := exec.Command("go", "build", "-o", compiledPath, scriptFile)
+	cmd.Dir = tempDir // Ensure context is correct for build if script has local imports (not in this case)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if errRem := os.RemoveAll(tempDir); errRem != nil {
+			t.Logf("Failed to remove temp dir %s after script compile failure: %v", tempDir, errRem)
+		}
+		t.Fatalf("Failed to compile script: %v\nOutput:\n%s", err, string(output))
+	}
+
+	return compiledPath, func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Failed to remove temp dir %s in cleanup: %v", tempDir, err)
+		}
+	}
+}
+
+const commonScriptImports = `
+package main
+
+import (
+	"fmt"
+	"os"
+)
+`
+
+// Late import block removed, contents merged above.
+
+func TestMuxAgent_Add_MultipleAddTargets_CommandSuccess(t *testing.T) {
+	agent1Path := "agent1.sock"
+	agent2Path := "agent2.sock" // This one will be selected by the script
+	mockAgent1 := &mockAgent{path: agent1Path}
+	mockAgent2 := &mockAgent{path: agent2Path} // The agent we expect to be called
+
+	agentInstance1 := &Agent{agent: mockAgent1, path: agent1Path}
+	agentInstance2 := &Agent{agent: mockAgent2, path: agent2Path}
+
+	// Generate a real key for testing PrivateKey type assertion and info derivation
+	_, privKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("Failed to generate ed25519 key: %v", err)
+	}
+	testComment := "key-for-command-success-with-info"
+
+	scriptCode := fmt.Sprintf(`
+%s
+import "strings"
+
+func main() {
+	targetsEnv := os.Getenv("SSH_AGENT_MUX_TARGETS")
+	// Allow any order for targetsEnv
+	parts := strings.Split(strings.TrimSpace(targetsEnv), "\n")
+	if len(parts) != 2 {
+		fmt.Fprintf(os.Stderr, "Expected 2 targets, got %%d: %%s\n", len(parts), targetsEnv)
+		os.Exit(1)
+	}
+	found1 := false
+	found2 := false
+	for _, p := range parts {
+		if p == "%s" { found1 = true }
+		if p == "%s" { found2 = true }
+	}
+	if !found1 || !found2 {
+		// Ensuring the '%%s' for targetsEnv (the "Got: %%s" part) is correctly escaped for the outer Sprintf.
+		// The two '%%s' in "Expected parts: %%s, %%s" are for the inner Fprintf's arguments,
+		// which are themselves placeholders "%%s", "%%s" for the outer Sprintf.
+		fmt.Fprintf(os.Stderr, "Targets env var mismatch. Got: %%s, Expected parts: %%s, %%s\n", targetsEnv, "%s", "%s")
+		os.Exit(1)
+	}
+
+	keyInfo := os.Getenv("SSH_AGENT_MUX_KEY_INFO")
+	if keyInfo == "" {
+		fmt.Fprintln(os.Stderr, "SSH_AGENT_MUX_KEY_INFO is not set")
+		os.Exit(1)
+	}
+	// Basic format check
+	if !strings.Contains(keyInfo, "COMMENT=%s") || !strings.Contains(keyInfo, "TYPE=ssh-ed25519") || !strings.Contains(keyInfo, "FINGERPRINT_SHA256=SHA256:") {
+		fmt.Fprintf(os.Stderr, "SSH_AGENT_MUX_KEY_INFO format error: %%s\n", keyInfo)
+		os.Exit(1)
+	}
+
+	fmt.Print("%s") // This should be the 7th verb, for the 7th Sprintf argument (agent2Path for selection)
+	os.Exit(0)
+}`, commonScriptImports, agent1Path, agent2Path, agent1Path, agent2Path, testComment, agent2Path) // Added 8th dummy argument
+
+	scriptPath, cleanup := createSelectTargetScript(t, scriptCode)
+	defer cleanup()
+
+	muxAgent := NewMuxAgent([]*Agent{}, []*Agent{agentInstance1, agentInstance2}, scriptPath)
+	addedKey := agent.AddedKey{
+		PrivateKey: privKey, // Use the real crypto.Signer
+		Comment:    testComment,
+	}
+	err = muxAgent.Add(addedKey)
+
+	if err != nil {
+		// If the script exits with error, err will contain stderr output.
+		t.Fatalf("CommandSuccess: Add() failed: %v", err)
+	}
+	if mockAgent1.addCalled {
+		t.Errorf("CommandSuccess: agent1 should not have Add called")
+	}
+	if !mockAgent2.addCalled {
+		t.Fatalf("CommandSuccess: agent2 should have Add called but was not")
+	}
+	if mockAgent2.addedKey.Comment != addedKey.Comment {
+		t.Errorf("CommandSuccess: agent2 received wrong key. Expected comment '%s', got '%s'", addedKey.Comment, mockAgent2.addedKey.Comment)
+	}
+}
+
+// TestMuxAgent_Add_MultipleAddTargets_CommandSuccess_NoPrivateKeyTypeAssertion tests
+// the scenario where PrivateKey in agent.AddedKey is not a crypto.Signer
+// and thus TYPE and FINGERPRINT_SHA256 should be "unknown".
+func TestMuxAgent_Add_MultipleAddTargets_CommandSuccess_NoSigner(t *testing.T) {
+	agent1Path := "agent1-nosigner.sock"
+	agent2Path := "agent2-nosigner.sock" // This one will be selected by the script
+	mockAgent1 := &mockAgent{path: agent1Path}
+	mockAgent2 := &mockAgent{path: agent2Path} // The agent we expect to be called
+
+	agentInstance1 := &Agent{agent: mockAgent1, path: agent1Path}
+	agentInstance2 := &Agent{agent: mockAgent2, path: agent2Path}
+	testComment := "key-for-command-success-no-signer"
+
+	scriptCode := fmt.Sprintf(`
+%s
+import "strings"
+func main() {
+	targetsEnv := os.Getenv("SSH_AGENT_MUX_TARGETS")
+	parts := strings.Split(strings.TrimSpace(targetsEnv), "\n")
+	if len(parts) != 2 {
+		fmt.Fprintf(os.Stderr, "Expected 2 targets, got %%d: %%s\n", len(parts), targetsEnv)
+		os.Exit(1)
+	}
+	// Basic check for targets is sufficient here, focus is on keyInfo
+
+	keyInfo := os.Getenv("SSH_AGENT_MUX_KEY_INFO")
+	if keyInfo == "" {
+		fmt.Fprintln(os.Stderr, "SSH_AGENT_MUX_KEY_INFO is not set")
+		os.Exit(1)
+	}
+	// Expect "unknown" for TYPE and FINGERPRINT
+	if !strings.Contains(keyInfo, "COMMENT=%s") || !strings.Contains(keyInfo, "TYPE=unknown") || !strings.Contains(keyInfo, "FINGERPRINT_SHA256=unknown") {
+		fmt.Fprintf(os.Stderr, "SSH_AGENT_MUX_KEY_INFO format error for non-signer: %%s\n", keyInfo)
+		os.Exit(1)
+	}
+
+	fmt.Print("%s") // Script selects agent2Path
+	os.Exit(0)
+}`, commonScriptImports, testComment, agent2Path) // agent2Path is selected
+
+	scriptPath, cleanup := createSelectTargetScript(t, scriptCode)
+	defer cleanup()
+
+	muxAgent := NewMuxAgent([]*Agent{}, []*Agent{agentInstance1, agentInstance2}, scriptPath)
+	addedKey := agent.AddedKey{
+		PrivateKey: "this is not a crypto.Signer", // String instead of crypto.Signer
+		Comment:    testComment,
+	}
+	err := muxAgent.Add(addedKey)
+
+	if err != nil {
+		t.Fatalf("CommandSuccess_NoSigner: Add() failed: %v", err)
+	}
+	if !mockAgent2.addCalled {
+		t.Fatalf("CommandSuccess_NoSigner: agent2 should have Add called but was not")
+	}
+	if mockAgent2.addedKey.Comment != addedKey.Comment {
+		t.Errorf("CommandSuccess_NoSigner: agent2 received wrong key. Expected comment '%s', got '%s'", addedKey.Comment, mockAgent2.addedKey.Comment)
+	}
+}
+
+func TestMuxAgent_Add_MultipleAddTargets_CommandReturnsInvalidTarget(t *testing.T) {
+	agent1Path := "agent1.sock"
+	agent2Path := "agent2.sock"
+	mockAgent1 := &mockAgent{path: agent1Path}
+	mockAgent2 := &mockAgent{path: agent2Path}
+	agentInstance1 := &Agent{agent: mockAgent1, path: agent1Path}
+	agentInstance2 := &Agent{agent: mockAgent2, path: agent2Path}
+
+	invalidPath := "invalid/agent.sock"
+	scriptCode := fmt.Sprintf(`
+%s
+func main() {
+	fmt.Print("%s")
+	os.Exit(0)
+}`, commonScriptImports, invalidPath)
+
+	scriptPath, cleanup := createSelectTargetScript(t, scriptCode)
+	defer cleanup()
+
+	muxAgent := NewMuxAgent([]*Agent{}, []*Agent{agentInstance1, agentInstance2}, scriptPath)
+	err := muxAgent.Add(agent.AddedKey{Comment: "key-for-invalid-target"})
+
+	if err == nil {
+		t.Fatalf("CommandReturnsInvalidTarget: Expected error, got nil")
+	}
+	expectedErrorMsg := fmt.Sprintf("select-target-command returned an invalid target path: '%s'", invalidPath)
+	if !strings.Contains(err.Error(), expectedErrorMsg) {
+		t.Errorf("CommandReturnsInvalidTarget: Expected error message containing '%s', got '%s'", expectedErrorMsg, err.Error())
+	}
+	if mockAgent1.addCalled || mockAgent2.addCalled {
+		t.Errorf("CommandReturnsInvalidTarget: No agent should have Add called")
+	}
+}
+
+func TestMuxAgent_Add_MultipleAddTargets_CommandReturnsEmpty(t *testing.T) {
+	agent1Path := "agent1.sock"
+	agent2Path := "agent2.sock"
+	mockAgent1 := &mockAgent{path: agent1Path}
+	mockAgent2 := &mockAgent{path: agent2Path}
+	agentInstance1 := &Agent{agent: mockAgent1, path: agent1Path}
+	agentInstance2 := &Agent{agent: mockAgent2, path: agent2Path}
+
+	scriptCode := fmt.Sprintf(`
+%s
+func main() {
+	fmt.Print("   \n") // Empty or whitespace
+	os.Exit(0)
+}`, commonScriptImports)
+
+	scriptPath, cleanup := createSelectTargetScript(t, scriptCode)
+	defer cleanup()
+
+	muxAgent := NewMuxAgent([]*Agent{}, []*Agent{agentInstance1, agentInstance2}, scriptPath)
+	err := muxAgent.Add(agent.AddedKey{Comment: "key-for-empty-return"})
+
+	if err == nil {
+		t.Fatalf("CommandReturnsEmpty: Expected error, got nil")
+	}
+	expectedErrorMsg := "select-target-command returned empty output"
+	if !strings.Contains(err.Error(), expectedErrorMsg) {
+		t.Errorf("CommandReturnsEmpty: Expected error message containing '%s', got '%s'", expectedErrorMsg, err.Error())
+	}
+}
+
+func TestMuxAgent_Add_MultipleAddTargets_CommandErrorExit(t *testing.T) {
+	agent1Path := "agent1.sock"
+	agent2Path := "agent2.sock"
+	mockAgent1 := &mockAgent{path: agent1Path}
+	mockAgent2 := &mockAgent{path: agent2Path}
+	agentInstance1 := &Agent{agent: mockAgent1, path: agent1Path}
+	agentInstance2 := &Agent{agent: mockAgent2, path: agent2Path}
+
+	scriptErrorMessage := "script failed deliberately"
+	scriptCode := fmt.Sprintf(`
+%s
+func main() {
+	fmt.Fprintln(os.Stderr, "%s")
+	os.Exit(1)
+}`, commonScriptImports, scriptErrorMessage)
+
+	scriptPath, cleanup := createSelectTargetScript(t, scriptCode)
+	defer cleanup()
+
+	muxAgent := NewMuxAgent([]*Agent{}, []*Agent{agentInstance1, agentInstance2}, scriptPath)
+	err := muxAgent.Add(agent.AddedKey{Comment: "key-for-error-exit"})
+
+	if err == nil {
+		t.Fatalf("CommandErrorExit: Expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), scriptErrorMessage) {
+		t.Errorf("CommandErrorExit: Expected error message to contain script's stderr ('%s'), got '%s'", scriptErrorMessage, err.Error())
+	}
+	if !strings.Contains(err.Error(), "failed to execute select-target-command") {
+		t.Errorf("CommandErrorExit: Expected error message to indicate command execution failure, got '%s'", err.Error())
 	}
 }

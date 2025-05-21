@@ -30,10 +30,11 @@ var (
 )
 
 var (
-	listen    string
-	targets   []string
-	addTarget string
-	debug     bool
+	listen              string
+	targets             []string
+	addTargets          []string
+	selectTargetCommand string
+	debug               bool
 )
 
 func main() {
@@ -42,7 +43,8 @@ func main() {
 	pflag.BoolVarP(&debug, "debug", "d", false, "debug mode")
 	pflag.StringVarP(&listen, "listen", "l", "", "socket path to listen for the multiplexer. it is generated automatically if not set")
 	pflag.StringSliceVarP(&targets, "target", "t", nil, "path of target agent to proxy. you can specify this option multiple times")
-	pflag.StringVarP(&addTarget, "add-target", "a", "", "path of target agent for ssh-add command")
+	pflag.StringSliceVarP(&addTargets, "add-target", "a", nil, "path of target agent for ssh-add command. Can be specified multiple times.")
+	pflag.StringVar(&selectTargetCommand, "select-target-command", "ssh-agent-mux-select", "command to execute to select a target when multiple --add-target agents are specified.")
 	pflag.Parse()
 
 	if *help {
@@ -65,9 +67,14 @@ func main() {
 
 	// validation
 	for _, t := range targets {
-		if t == addTarget {
-			log.Fatal().Msg("target paths must not include add-target path")
+		for _, at := range addTargets {
+			if t == at {
+				log.Fatal().Msg("target paths must not include add-target path")
+			}
 		}
+	}
+	if len(addTargets) > 1 && selectTargetCommand == "" {
+		log.Fatal().Msg("When specifying multiple --add-target agents, --select-target-command must also be provided.")
 	}
 
 	// initializing socket to listen
@@ -97,11 +104,16 @@ func main() {
 	for _, t := range targets {
 		targetAgents = append(targetAgents, pkg.MustNewAgent(t))
 	}
-	var addAgent *pkg.Agent
-	if addTarget != "" {
-		addAgent = pkg.MustNewAgent(addTarget)
+
+	var addTargetAgents []*pkg.Agent
+	if len(addTargets) > 0 {
+		// Validation for selectTargetCommand when multiple addTargets are present is already done earlier.
+		for _, atPath := range addTargets {
+			addTargetAgents = append(addTargetAgents, pkg.MustNewAgent(atPath))
+		}
 	}
-	agt := pkg.NewMuxAgent(targetAgents, addAgent)
+
+	agt := pkg.NewMuxAgent(targetAgents, addTargetAgents, selectTargetCommand)
 	log.Debug().Msg("Succeed to connect all the target agents.")
 
 	log.Info().Str("listen", listen).Msg("Agent multiplexer listening")

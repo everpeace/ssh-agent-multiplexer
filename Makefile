@@ -1,4 +1,5 @@
 NAME        := ssh-agent-multiplexer
+NAME_SELECT_TOOL := ssh-agent-mux-select
 PROJECTROOT := $(shell pwd)
 VERSION     := $(shell git describe --tags --abbrev=1 --dirty)
 REVISION    := $(shell git rev-parse --short HEAD)
@@ -12,12 +13,20 @@ export GOTOOLCHAIN=auto
 build: fmt lint build-only
 
 .PHONY: build-only
-build-only:
-	go build $(LDFLAGS) -o $(OUTDIR)/$(NAME)
+build-only: build-mux build-select-tool
+
+.PHONY: build-mux
+build-mux:
+	go build $(LDFLAGS) -o $(OUTDIR)/$(NAME) ./
+
+.PHONY: build-select-tool
+build-select-tool:
+	go build $(LDFLAGS) -o $(OUTDIR)/$(NAME_SELECT_TOOL) ./cmd/ssh-agent-mux-select/
 
 .PHONY: lint
 lint:
-	$(shell go env GOPATH)/bin/golangci-lint run
+	GOOS=darwin $(shell go env GOPATH)/bin/golangci-lint run
+	GOOS=linux $(shell go env GOPATH)/bin/golangci-lint run
 
 .PHONY: test
 test:
