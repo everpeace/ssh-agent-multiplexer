@@ -1,17 +1,16 @@
 package config_test
 
 import (
+	"io" // For discarding output
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
-	"io" // For discarding output
 
+	"github.com/everpeace/ssh-agent-multiplexer/pkg/config"
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/everpeace/ssh-agent-multiplexer/pkg/config"
 )
 
 // Helper function to create a temporary config file.
@@ -42,22 +41,22 @@ func createTempConfigFile(t *testing.T, dir string, filename string, content str
 }
 
 type configTestCase struct {
-	name                string
-	args                []string
-	configContent       string    // Content for the primary temporary config file
+	name                 string
+	args                 []string
+	configContent        string // Content for the primary temporary config file
 	configFileRelPath    string // Relative path for the config file (e.g., ".ssh-agent-multiplexer.toml" or "custom/myconf.toml")
 	useCustomConfigDir   bool   // If true, configFileRelPath is inside a custom (temporary) user config dir
 	expectedConfig       config.AppConfig
 	expectLoadError      bool   // True if LoadViperConfig is expected to error
 	expectedLoadErrorMsg string // Substring for LoadViperConfig error
 	expectParseError     bool   // True if fs.Parse is expected to error
-	// expectedBindError    bool   // True if DefineAndBindFlags is expected to error (rare)
-	preTestHook  func(t *testing.T, workingDir string, userConfigDir string) // For setup like creating default config files
-	postTestHook func(t *testing.T)                                        // For cleanup like unsetting env vars
+	preTestHook          func(t *testing.T, workingDir string, userConfigDir string)
+	postTestHook         func(t *testing.T)
 }
 
 func TestAppConfiguration(t *testing.T) {
 	originalUserHomeDir := os.Getenv("HOME")
+	//nolint:errcheck
 	defer os.Setenv("HOME", originalUserHomeDir)
 
 	testCases := []configTestCase{
@@ -67,7 +66,7 @@ func TestAppConfiguration(t *testing.T) {
 			expectedConfig: config.AppConfig{
 				Debug:               false,
 				Listen:              "",
-				Targets:             []string{}, // Viper/pflag default to empty slice if not nil
+				Targets:             []string{},
 				AddTargets:          []string{},
 				SelectTargetCommand: "ssh-agent-mux-select",
 				ConfigFilePathUsed:  "",
@@ -90,7 +89,7 @@ select_target_command = "custom_select_cmd"
 				Targets:             []string{"/target/from/config.sock"},
 				AddTargets:          []string{"/add/from/config.sock"},
 				SelectTargetCommand: "custom_select_cmd",
-				ConfigFilePathUsed:  "custom_config.toml", // This will be updated to absolute path later in test
+				ConfigFilePathUsed:  "custom_config.toml",
 			},
 		},
 		{
@@ -127,7 +126,7 @@ targets = ["/target/default_local.sock"]
 				Targets:             []string{"/target/default_local.sock"},
 				AddTargets:          []string{},
 				SelectTargetCommand: "ssh-agent-mux-select",
-				ConfigFilePathUsed:  ".ssh-agent-multiplexer.toml", // Will be updated to abs path
+				ConfigFilePathUsed:  ".ssh-agent-multiplexer.toml",
 			},
 		},
 		{
@@ -146,7 +145,7 @@ add_targets = ["/add/user_config.sock"]
 				Targets:             []string{},
 				AddTargets:          []string{"/add/user_config.sock"},
 				SelectTargetCommand: "ssh-agent-mux-select",
-				ConfigFilePathUsed:  "config.toml", // Will be updated to abs path
+				ConfigFilePathUsed:  "config.toml",
 			},
 		},
 		{
@@ -222,7 +221,7 @@ select_target_command = ""
 		},
 		{
 			name: "user config dir has precedence over local .ssh-agent-multiplexer.toml if --config not used",
-			args: []string{}, // No --config flag
+			args: []string{},
 			preTestHook: func(t *testing.T, workingDir string, userConfigDir string) {
 				_, cleanupUser := createTempConfigFile(t, userConfigDir, "config.toml", `
 debug = true
@@ -236,21 +235,20 @@ listen = "local_dir_should_be_ignored"
 `)
 				t.Cleanup(cleanupLocal)
 			},
-			useCustomConfigDir: true, // Critical for test setup to mock user config dir correctly
+			useCustomConfigDir: true,
 			expectedConfig: config.AppConfig{
 				Debug:               true,
 				Listen:              "user_config_dir_wins",
 				Targets:             []string{},
 				AddTargets:          []string{},
 				SelectTargetCommand: "ssh-agent-mux-select",
-				ConfigFilePathUsed:  filepath.Join("mocked_user_home", ".config", "ssh-agent-multiplexer", "config.toml"), // Placeholder, will be updated
+				ConfigFilePathUsed:  filepath.Join("mocked_user_home", ".config", "ssh-agent-multiplexer", "config.toml"),
 			},
 		},
 		{
 			name: "local .ssh-agent-multiplexer.toml is used if no user config and no --config flag",
 			args: []string{},
 			preTestHook: func(t *testing.T, workingDir string, userConfigDir string) {
-				// No user config file created for this test.
 				_, cleanupLocal := createTempConfigFile(t, workingDir, ".ssh-agent-multiplexer.toml", `
 debug = true
 listen = "local_dir_wins_now"
@@ -263,165 +261,147 @@ listen = "local_dir_wins_now"
 				Targets:             []string{},
 				AddTargets:          []string{},
 				SelectTargetCommand: "ssh-agent-mux-select",
-				ConfigFilePathUsed:  ".ssh-agent-multiplexer.toml", // Will be updated
+				ConfigFilePathUsed:  ".ssh-agent-multiplexer.toml",
 			},
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Create a temporary directory to simulate the user's home for config
 			tempUserHomeDir, err := os.MkdirTemp("", "userhome")
 			require.NoError(t, err)
-			defer os.RemoveAll(tempUserHomeDir)
+			defer func() { _ = os.RemoveAll(tempUserHomeDir) }()
 			originalHome := os.Getenv("HOME")
 			err = os.Setenv("HOME", tempUserHomeDir)
 			require.NoError(t, err)
 			if originalHome == "" {
+				//nolint:errcheck
 				defer os.Unsetenv("HOME")
 			} else {
+				//nolint:errcheck
 				defer os.Setenv("HOME", originalHome)
 			}
-			
-			// Base working directory for the test execution (where .ssh-agent-multiplexer.toml might be)
+
 			testWorkingDir, err := os.MkdirTemp("", "testworkdir")
 			require.NoError(t, err)
-			defer os.RemoveAll(testWorkingDir)
-			
+			defer func() { _ = os.RemoveAll(testWorkingDir) }()
+
 			userConfigDirPath := filepath.Join(tempUserHomeDir, ".config", "ssh-agent-multiplexer")
 
-			// --- Pre Test Hook ---
 			if tc.preTestHook != nil {
 				tc.preTestHook(t, testWorkingDir, userConfigDirPath)
 			}
 
-			// --- Config File Setup ---
-			var configFileArgForLoad string // This is the path passed to --config, or empty
-			var expectedConfigPathInAppCfg string 
+			var configFileArgForLoad string
+			var expectedConfigPathInAppCfg string
 			var cleanupTempFile func()
 
 			if tc.configContent != "" {
 				var createdConfigPath string
 				if tc.useCustomConfigDir {
-					// Create in the mocked user config dir
 					createdConfigPath, cleanupTempFile = createTempConfigFile(t, userConfigDirPath, tc.configFileRelPath, tc.configContent)
 					expectedConfigPathInAppCfg = createdConfigPath
-					// configFileArgForLoad remains empty unless this test also involves --config flag
 				} else if len(tc.args) > 0 && tc.args[0] == "--config" {
-					// Config specified by --config flag, create it relative to testWorkingDir
-					// tc.configFileRelPath should be the filename for this case (e.g. "custom_config.toml")
 					createdConfigPath, cleanupTempFile = createTempConfigFile(t, testWorkingDir, tc.configFileRelPath, tc.configContent)
-					configFileArgForLoad = createdConfigPath // This path is passed to LoadViperConfig
+					configFileArgForLoad = createdConfigPath
 					expectedConfigPathInAppCfg = createdConfigPath
 				} else {
-					// Default local config (.ssh-agent-multiplexer.toml), create in testWorkingDir
 					createdConfigPath, cleanupTempFile = createTempConfigFile(t, testWorkingDir, tc.configFileRelPath, tc.configContent)
 					expectedConfigPathInAppCfg = createdConfigPath
-					// configFileArgForLoad remains empty
 				}
 				if cleanupTempFile != nil {
 					defer cleanupTempFile()
 				}
 			} else if len(tc.args) > 0 && tc.args[0] == "--config" {
-				// --config flag is used but no content means we are testing non-existent file
-				// Create a dummy path in testWorkingDir that won't exist
 				configFileArgForLoad = filepath.Join(testWorkingDir, tc.configFileRelPath)
-				// expectedConfigPathInAppCfg remains empty as loading should fail
 			}
-			
-			// Adjust expectedConfig.ConfigFilePathUsed if it was set with a relative path
+
 			if tc.expectedConfig.ConfigFilePathUsed != "" && !filepath.IsAbs(tc.expectedConfig.ConfigFilePathUsed) {
-				if expectedConfigPathInAppCfg != "" { // If a file was actually created
+				if expectedConfigPathInAppCfg != "" {
 					tc.expectedConfig.ConfigFilePathUsed = expectedConfigPathInAppCfg
-				} else if tc.useCustomConfigDir { // Special case for user config dir that might not be created but path is known
-            		tc.expectedConfig.ConfigFilePathUsed = filepath.Join(userConfigDirPath, tc.configFileRelPath)
+				} else if tc.useCustomConfigDir {
+					tc.expectedConfig.ConfigFilePathUsed = filepath.Join(userConfigDirPath, tc.configFileRelPath)
 				}
-				// For ./.ssh-agent-multiplexer.toml, the expected path is tricky due to Chdir.
-				// It's simpler if LoadViperConfig returns the absolute path.
 			}
 
-
-			// --- Change Working Directory ---
-			// This needs to be done *after* creating any config files specified by absolute paths (via --config)
-			// but *before* LoadViperConfig if testing default path resolution relative to CWD.
 			originalWD, err := os.Getwd()
 			require.NoError(t, err)
 			err = os.Chdir(testWorkingDir)
 			require.NoError(t, err)
-			defer os.Chdir(originalWD) // Ensure WD is restored
+			//nolint:errcheck
+			defer os.Chdir(originalWD)
 
-			// If expectedConfigPathInAppCfg was for a file in the *new* CWD (testWorkingDir), update its expected path.
 			if tc.expectedConfig.ConfigFilePathUsed == ".ssh-agent-multiplexer.toml" {
 				tc.expectedConfig.ConfigFilePathUsed = filepath.Join(testWorkingDir, ".ssh-agent-multiplexer.toml")
 			}
 
-
-			// --- Test Execution ---
 			v, actualLoadedPath, err := config.LoadViperConfig(configFileArgForLoad)
 			if tc.expectLoadError {
 				require.Error(t, err, "Expected LoadViperConfig to error")
 				if tc.expectedLoadErrorMsg != "" {
 					assert.Contains(t, err.Error(), tc.expectedLoadErrorMsg, "LoadViperConfig error message mismatch")
 				}
-				return // Stop test here if loading failed as expected
+				return
 			}
 			require.NoError(t, err, "LoadViperConfig failed unexpectedly: %v", err)
 			require.NotNil(t, v, "Viper instance should not be nil after LoadViperConfig")
-			
-			// Update expected path if a default file was successfully loaded (LoadViperConfig returns absolute path)
+
 			if configFileArgForLoad == "" && actualLoadedPath != "" {
 				tc.expectedConfig.ConfigFilePathUsed = actualLoadedPath
 			}
 
-
 			fs := pflag.NewFlagSet("testflags", pflag.ContinueOnError)
-			fs.SetOutput(io.Discard) // Suppress output from pflag
-			
+			fs.SetOutput(io.Discard)
+
 			err = config.DefineAndBindFlags(v, fs)
 			require.NoError(t, err, "DefineAndBindFlags failed: %v")
 
-			// Prepare args for pflag parsing (filter out --config if it was handled by LoadViperConfig)
 			pflagArgs := tc.args
-			if configFileArgForLoad != "" { // If --config was passed to LoadViperConfig
+			if configFileArgForLoad != "" {
 				tempArgs := []string{}
 				for i := 0; i < len(tc.args); i++ {
 					if tc.args[i] == "--config" || tc.args[i] == "-c" {
-						i++ // skip the flag and its value
+						i++
 						continue
 					}
 					tempArgs = append(tempArgs, tc.args[i])
 				}
 				pflagArgs = tempArgs
 			}
-			
+
 			err = fs.Parse(pflagArgs)
 			if tc.expectParseError {
 				require.Error(t, err, "Expected fs.Parse to error")
-				// Add more specific error message checks if needed
-				return // Stop if parsing failed as expected
+				return
 			}
 			require.NoError(t, err, "fs.Parse failed: %v", err)
 
 			appCfg := config.GetAppConfig(v, actualLoadedPath)
 			require.NotNil(t, appCfg, "GetAppConfig returned nil")
 
-			// Assertions
 			assert.Equal(t, tc.expectedConfig.Debug, appCfg.Debug, "Mismatch for 'Debug'")
 			assert.Equal(t, tc.expectedConfig.Listen, appCfg.Listen, "Mismatch for 'Listen'")
-			
-			// Normalize nil/empty slices for comparison
+
 			expectedTargets := tc.expectedConfig.Targets
-			if expectedTargets == nil { expectedTargets = []string{} }
+			if expectedTargets == nil {
+				expectedTargets = []string{}
+			}
 			actualTargets := appCfg.Targets
-			if actualTargets == nil { actualTargets = []string{} }
+			if actualTargets == nil {
+				actualTargets = []string{}
+			}
 			assert.True(t, reflect.DeepEqual(expectedTargets, actualTargets), "Mismatch for 'Targets'. Expected %v, got %v", expectedTargets, actualTargets)
 
 			expectedAddTargets := tc.expectedConfig.AddTargets
-			if expectedAddTargets == nil { expectedAddTargets = []string{} }
+			if expectedAddTargets == nil {
+				expectedAddTargets = []string{}
+			}
 			actualAddTargets := appCfg.AddTargets
-			if actualAddTargets == nil { actualAddTargets = []string{} }
+			if actualAddTargets == nil {
+				actualAddTargets = []string{}
+			}
 			assert.True(t, reflect.DeepEqual(expectedAddTargets, actualAddTargets), "Mismatch for 'AddTargets'. Expected %v, got %v", expectedAddTargets, actualAddTargets)
-			
+
 			assert.Equal(t, tc.expectedConfig.SelectTargetCommand, appCfg.SelectTargetCommand, "Mismatch for 'SelectTargetCommand'")
 			assert.Equal(t, tc.expectedConfig.ConfigFilePathUsed, appCfg.ConfigFilePathUsed, "Mismatch for 'ConfigFilePathUsed'")
 
@@ -431,9 +411,3 @@ listen = "local_dir_wins_now"
 		})
 	}
 }
-
-// Remove old TestSetupConfiguration_HelpFlag and TestSetupConfiguration_VersionFlag
-// as they tested the old setupConfiguration function. Help/version flag behavior is now
-// primarily handled by pflag within main.go itself, not a direct output of the config package's
-// core functions in the same way. The flags are defined by DefineAndBindFlags, but their
-// exit behavior is up to the caller (main.go).

@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/signal"
 	"path"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -85,7 +84,7 @@ func main() {
 		// This explicit check is more for pflag.ContinueOnError or if customized help is needed.
 		// However, pflag.ExitOnError usually exits before this point if --help is passed.
 		// If we reach here, it means ExitOnError didn't exit (e.g. if it was changed to ContinueOnError).
-		fmt.Fprintf(os.Stdout, "Usage of %s:\n", os.Args[0])
+		_, _ = fmt.Fprintf(os.Stdout, "Usage of %s:\n", os.Args[0])
 		mainFlagSet.PrintDefaults()
 		os.Exit(0)
 	}
@@ -176,7 +175,7 @@ func main() {
 			break // Exit loop on error or shutdown signal
 		}
 		go func(conn net.Conn) {
-			defer conn.Close() // Ensure connection is closed for each goroutine
+			defer func() { _ = conn.Close() }() // Ensure connection is closed for each goroutine
 			err := agent.ServeAgent(agt, conn)
 			if err != nil && err != io.EOF {
 				log.Error().Err(err).Msg("Error in serving agent")
