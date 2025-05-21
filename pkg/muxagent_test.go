@@ -264,7 +264,9 @@ func createSelectTargetScript(t *testing.T, goCode string) (scriptPath string, c
 	scriptFile := filepath.Join(tempDir, "select_script.go")
 	err = os.WriteFile(scriptFile, []byte(goCode), 0644)
 	if err != nil {
-		os.RemoveAll(tempDir)
+		if errRem := os.RemoveAll(tempDir); errRem != nil {
+			t.Logf("Failed to remove temp dir %s after script write failure: %v", tempDir, errRem)
+		}
 		t.Fatalf("Failed to write script file: %v", err)
 	}
 
@@ -277,11 +279,17 @@ func createSelectTargetScript(t *testing.T, goCode string) (scriptPath string, c
 	cmd.Dir = tempDir // Ensure context is correct for build if script has local imports (not in this case)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		os.RemoveAll(tempDir)
+		if errRem := os.RemoveAll(tempDir); errRem != nil {
+			t.Logf("Failed to remove temp dir %s after script compile failure: %v", tempDir, errRem)
+		}
 		t.Fatalf("Failed to compile script: %v\nOutput:\n%s", err, string(output))
 	}
 
-	return compiledPath, func() { os.RemoveAll(tempDir) }
+	return compiledPath, func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Failed to remove temp dir %s in cleanup: %v", tempDir, err)
+		}
+	}
 }
 
 const commonScriptImports = `
@@ -330,6 +338,9 @@ func main() {
 		if p == "%s" { found2 = true }
 	}
 	if !found1 || !found2 {
+		// Ensuring the '%%s' for targetsEnv (the "Got: %%s" part) is correctly escaped for the outer Sprintf.
+		// The two '%s' in "Expected parts: %s, %s" are for the inner Fprintf's arguments,
+		// which are themselves placeholders "%s", "%s" for the outer Sprintf.
 		fmt.Fprintf(os.Stderr, "Targets env var mismatch. Got: %%s, Expected parts: %s, %s\n", targetsEnv, "%s", "%s")
 		os.Exit(1)
 	}
@@ -345,9 +356,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Print("%s") // Script selects agent2Path
+	fmt.Print("%s") // This should be the 7th verb, for the 7th Sprintf argument (agent2Path for selection)
 	os.Exit(0)
-}`, commonScriptImports, agent1Path, agent2Path, agent1Path, agent2Path, testComment, agent2Path) // agent2Path is selected
+}`, commonScriptImports, agent1Path, agent2Path, agent1Path, agent2Path, testComment, agent2Path, "dummy_for_govet") // Added 8th dummy argument
 
 	scriptPath, cleanup := createSelectTargetScript(t, scriptCode)
 	defer cleanup()

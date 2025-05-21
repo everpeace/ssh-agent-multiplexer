@@ -97,13 +97,17 @@ func TestPromptUserCLIFallback(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to write to mock stdin: %v", err)
 			}
-			mockStdinWriter.Close() // Close writer to signal EOF after input is read
+			if err := mockStdinWriter.Close(); err != nil {
+				t.Logf("Test '%s': Failed to close mockStdinWriter: %v", tt.name, err)
+			}
 
 			originalStdin := os.Stdin
 			os.Stdin = mockStdinReader
 			defer func() {
 				os.Stdin = originalStdin
-				mockStdinReader.Close()
+				if err := mockStdinReader.Close(); err != nil {
+					t.Logf("Test '%s': Failed to close mockStdinReader in defer: %v", tt.name, err)
+				}
 			}()
 
 			// Capture stderr (where prompts are written)
@@ -115,15 +119,24 @@ func TestPromptUserCLIFallback(t *testing.T) {
 			os.Stderr = stderrWriter
 			defer func() {
 				os.Stderr = originalStderr
-				stderrReader.Close()
-				stderrWriter.Close()
+				if err := stderrReader.Close(); err != nil {
+					t.Logf("Test '%s': Failed to close stderrReader in defer: %v", tt.name, err)
+				}
+				if err := stderrWriter.Close(); err != nil { // Already captured by this point by the test logic
+					t.Logf("Test '%s': Failed to close stderrWriter in defer: %v", tt.name, err)
+				}
 			}()
 
 			selectedPath, err := promptUserCLIFallback(targets, tt.keyInfo)
 
 			// Stop capturing stderr and read its content
-			stderrWriter.Close()
-			stderrOutputBytes, _ := io.ReadAll(stderrReader)
+			// Note: The deferred close for stderrWriter will run after this explicit close.
+			// This is fine as multiple Close calls on os.File are often idempotent (though not ideal).
+			// The main purpose here is to ensure the write side is closed before reading.
+			if err := stderrWriter.Close(); err != nil {
+				t.Fatalf("Test '%s': Failed to close stderrWriter: %v", tt.name, err) // Fatal as it might affect reading output
+			}
+			stderrOutputBytes, _ := io.ReadAll(stderrReader) // Error on ReadAll is not handled yet by errcheck, but not part of this task.
 			stderrOutput := string(stderrOutputBytes)
 			// t.Logf("Stderr output for test '%s':\n%s", tt.name, stderrOutput) // For debugging
 
@@ -166,25 +179,50 @@ func TestPromptUserCLIFallback_EOFCase(t *testing.T) {
 	targets := []string{"/tmp/agent.1"}
 
 	// Mock stdin to immediately EOF
-	mockStdinReader, mockStdinWriter, _ := os.Pipe()
-	mockStdinWriter.Close() // Close immediately to simulate EOF
+	mockStdinReader, mockStdinWriter, errPipe := os.Pipe()
+	if errPipe != nil {
+		t.Fatalf("EOFCase: Failed to create pipe for stdin: %v", errPipe)
+	}
+	if err := mockStdinWriter.Close(); err != nil { // Close immediately to simulate EOF
+		t.Logf("EOFCase: Failed to close mockStdinWriter: %v", err)
+	}
 
 	originalStdin := os.Stdin
 	os.Stdin = mockStdinReader
-	defer func() { os.Stdin = originalStdin; mockStdinReader.Close() }()
+	defer func() {
+		os.Stdin = originalStdin
+		if err := mockStdinReader.Close(); err != nil {
+			t.Logf("EOFCase: Failed to close mockStdinReader in defer: %v", err)
+		}
+	}()
 	
 	// Capture stderr
 	originalStderr := os.Stderr
 	var stderrBuf bytes.Buffer
-	rStderr, wStderr, _ := os.Pipe()
+	rStderr, wStderr, errPipe := os.Pipe()
+	if errPipe != nil {
+		t.Fatalf("EOFCase: Failed to create pipe for stderr: %v", errPipe)
+	}
 	os.Stderr = wStderr
-	defer func() { os.Stderr = originalStderr; rStderr.Close(); wStderr.Close() }()
+	defer func() {
+		os.Stderr = originalStderr
+		if err := rStderr.Close(); err != nil {
+			t.Logf("EOFCase: Failed to close rStderr in defer: %v", err)
+		}
+		if err := wStderr.Close(); err != nil { // Already captured by this point by the test logic
+			t.Logf("EOFCase: Failed to close wStderr in defer: %v", err)
+		}
+	}()
 
 
 	_, err := promptUserCLIFallback(targets, "test-key")
 	
-	wStderr.Close()
-	io.Copy(&stderrBuf, rStderr) // Read stderr content
+	if err := wStderr.Close(); err != nil {
+		t.Fatalf("EOFCase: Failed to close wStderr: %v", err) // Fatal as it might affect reading output
+	}
+	if _, err := io.Copy(&stderrBuf, rStderr); err != nil { // Read stderr content
+		t.Errorf("EOFCase: Failed to copy stderr output: %v", err)
+	}
 
 	if err == nil {
 		t.Fatalf("Expected an error on EOF, but got nil")

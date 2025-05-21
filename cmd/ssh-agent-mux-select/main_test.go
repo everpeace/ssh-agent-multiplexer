@@ -86,15 +86,25 @@ func TestParseTargetsEnv(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			oldEnvVal := os.Getenv("SSH_AGENT_MUX_TARGETS")
 			if tt.setEnvVar {
-				os.Setenv("SSH_AGENT_MUX_TARGETS", tt.envVarValue)
+				if err := os.Setenv("SSH_AGENT_MUX_TARGETS", tt.envVarValue); err != nil {
+					t.Fatalf("Failed to set env var SSH_AGENT_MUX_TARGETS: %v", err)
+				}
 			} else {
-				os.Unsetenv("SSH_AGENT_MUX_TARGETS")
+				if err := os.Unsetenv("SSH_AGENT_MUX_TARGETS"); err != nil {
+					t.Fatalf("Failed to unset env var SSH_AGENT_MUX_TARGETS: %v", err)
+				}
 			}
 			defer func() {
 				if oldEnvVal == "" {
-					os.Unsetenv("SSH_AGENT_MUX_TARGETS")
+					if err := os.Unsetenv("SSH_AGENT_MUX_TARGETS"); err != nil {
+						// Using t.Logf or t.Errorf for defer as Fatalf would prevent other defers
+						t.Logf("defer: Failed to unset env var SSH_AGENT_MUX_TARGETS: %v", err)
+					}
 				} else {
-					os.Setenv("SSH_AGENT_MUX_TARGETS", oldEnvVal)
+					if err := os.Setenv("SSH_AGENT_MUX_TARGETS", oldEnvVal); err != nil {
+						// Using t.Logf or t.Errorf for defer
+						t.Logf("defer: Failed to set env var SSH_AGENT_MUX_TARGETS to old value: %v", err)
+					}
 				}
 			}()
 			

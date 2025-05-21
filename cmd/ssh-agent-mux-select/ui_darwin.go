@@ -49,15 +49,8 @@ func promptUserForSelection(targets []string, keyInfo string) (string, error) {
 		// For "choose from list", if cancel is hit, exit code is 0 and stdout is empty.
 		// If there's an actual error, stderr will often have info.
 		// ExitError type assertion is important here.
-		if _, ok := err.(*exec.ExitError); ok {
-			// osascript returns exit code 1 on cancel for some dialogs,
-			// but for "choose from list", it's more nuanced.
-			// stdout is empty string with exit code 0 if "Cancel" is pressed.
-			// stderr might say "User canceled." for other types of dialogs with exit code 1.
-			// Let's check stdout first for the "choose from list" cancel case.
-			// If stdout is empty and err is nil, it means cancel. If stdout is empty and err is NOT nil, it's an error.
-			// The promptUserCLIFallback will be called if we return an error here.
-		}
+		// The 'if _, ok := err.(*exec.ExitError); ok' block was removed as 'ok' was unused (SA4006).
+		// The surrounding error handling (logging and fallback) is sufficient.
 		// If any error, log and fallback
 		fmt.Fprintf(os.Stderr, "AppleScript GUI failed or was canceled: %v, stderr: %s. Falling back to CLI.\n", err, stderr.String())
 		return promptUserCLIFallback(targets, keyInfo)
