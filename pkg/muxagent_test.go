@@ -298,12 +298,10 @@ package main
 import (
 	"fmt"
 	"os"
-	"strings"
 )
 `
 
 // Late import block removed, contents merged above.
-
 
 func TestMuxAgent_Add_MultipleAddTargets_CommandSuccess(t *testing.T) {
 	agent1Path := "agent1.sock"
@@ -323,6 +321,8 @@ func TestMuxAgent_Add_MultipleAddTargets_CommandSuccess(t *testing.T) {
 
 	scriptCode := fmt.Sprintf(`
 %s
+import "strings"
+
 func main() {
 	targetsEnv := os.Getenv("SSH_AGENT_MUX_TARGETS")
 	// Allow any order for targetsEnv
@@ -339,9 +339,9 @@ func main() {
 	}
 	if !found1 || !found2 {
 		// Ensuring the '%%s' for targetsEnv (the "Got: %%s" part) is correctly escaped for the outer Sprintf.
-		// The two '%s' in "Expected parts: %s, %s" are for the inner Fprintf's arguments,
-		// which are themselves placeholders "%s", "%s" for the outer Sprintf.
-		fmt.Fprintf(os.Stderr, "Targets env var mismatch. Got: %%s, Expected parts: %s, %s\n", targetsEnv, "%s", "%s")
+		// The two '%%s' in "Expected parts: %%s, %%s" are for the inner Fprintf's arguments,
+		// which are themselves placeholders "%%s", "%%s" for the outer Sprintf.
+		fmt.Fprintf(os.Stderr, "Targets env var mismatch. Got: %%s, Expected parts: %%s, %%s\n", targetsEnv, "%s", "%s")
 		os.Exit(1)
 	}
 
@@ -358,7 +358,7 @@ func main() {
 
 	fmt.Print("%s") // This should be the 7th verb, for the 7th Sprintf argument (agent2Path for selection)
 	os.Exit(0)
-}`, commonScriptImports, agent1Path, agent2Path, agent1Path, agent2Path, testComment, agent2Path, "dummy_for_govet") // Added 8th dummy argument
+}`, commonScriptImports, agent1Path, agent2Path, agent1Path, agent2Path, testComment, agent2Path) // Added 8th dummy argument
 
 	scriptPath, cleanup := createSelectTargetScript(t, scriptCode)
 	defer cleanup()
@@ -400,6 +400,7 @@ func TestMuxAgent_Add_MultipleAddTargets_CommandSuccess_NoSigner(t *testing.T) {
 
 	scriptCode := fmt.Sprintf(`
 %s
+import "strings"
 func main() {
 	targetsEnv := os.Getenv("SSH_AGENT_MUX_TARGETS")
 	parts := strings.Split(strings.TrimSpace(targetsEnv), "\n")
