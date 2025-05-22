@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
 version: 2
 
 before:
@@ -68,6 +69,25 @@ docker_manifests:
   image_templates:
   - ghcr.io/everpeace/{{ .ProjectName }}:{{ .Version }}-amd64
   - ghcr.io/everpeace/{{ .ProjectName }}:{{ .Version }}-arm64v8
+
+brews:
+- name: "{{ .ProjectName }}"
+  homepage: https://github.com/everpeace/{{ .ProjectName }}
+  description: "{{ .ProjectName }}: a small program which multiplexes running ssh agents"
+  repository:
+    owner: everpeace
+    name: "{{ .ProjectName }}"
+  license: Apache-2.0
+  skip_upload: auto
+  install: |
+    bin.install "ssh-agent-multiplexer"
+    bin.install "ssh-agent-mux-select"
+  service: |
+    run opt_bin/"ssh-agent-multiplexer"
+    keep_alive true
+    working_dir HOMEBREW_PREFIX
+    log_path var/"log/ssh-agent-multiplexer.log"
+    error_log_path var/"log/ssh-agent-multiplexer.log"
 
 release:
   prerelease: auto
