@@ -1,6 +1,51 @@
-# ssh-agent-multiplexer 
+# ssh-agent-multiplexer
 
 This is a small program which multiplexes running ssh agents.
+
+## Install
+
+### Homebrew
+
+```console
+brew tap everpeace/tap
+brew install ssh-agent-multiplexer
+```
+
+### Binary
+
+go to [Releases](https://github.com/everpeace/ssh-agent-multiplexer/releases) page and download the tarballs.
+
+### Build from Source
+
+```console
+git clone https://github.com/everpeace/ssh-agent-multiplexer.git
+cd ssh-agent-multiplexer.git
+
+# Download dev tools to ./.dev
+make setup
+
+# Build: binaries will be built in dist/
+make
+```
+
+## Quickstart
+
+_This quickstart is available only when installed via Homebrew._
+
+1. Edit the default [config file](#configuration-file)
+  - for Mac: `~/Library/Application Support/ssh-agent-multiplexer/config.toml`
+  - for Linux: `~/.config/ssh-agent-multiplexer/config.toml`
+2. Start ssh-agent-multiplexer service via homebrew services
+  ```console
+  # logs will be at "$HOMEBREW_PREFIX/var/log/ssh-agent-multiplexer.log"
+  brew services start ssh-agent-multiplexer
+  ```
+3. Set `<your config dir>/agent.sock` to `SSH_AUTH_SOCK` (If you set `listen` in your config, set the value here)
+  ```console
+  export SSH_AUTH_SOCK="<your config dir>/agent.sock"
+  ```
+
+## `ssh-agent-multiplexer` CLI
 
 If you would like to
 - aggregate two agents `/path/to/work-agent.sock` and `/path/to/personal-agent.sock`
