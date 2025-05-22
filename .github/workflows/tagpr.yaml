@@ -29,4 +29,4 @@ jobs:
       if: "steps.tagpr.outputs.tag != ''"
       with:
         tag: ${{ steps.tagpr.outputs.tag }}
-        token: ${{ secrets.GITHUB_TOKEN }}
+        token: ${{ secrets.GH_PAT_RELEASE }}
