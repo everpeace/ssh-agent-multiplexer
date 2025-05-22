@@ -47,7 +47,7 @@ _This quickstart is available only when installed via Homebrew._
 
 ## `ssh-agent-multiplexer` CLI
 
-If you would like to
+You can run `ssh-agent-multiplexer` on-demand. If you would like to
 - aggregate two agents `/path/to/work-agent.sock` and `/path/to/personal-agent.sock`
 - use `/path/to/work-agent.sock` for target agent for adding keys (via `ssh-add`), 
 
@@ -57,15 +57,15 @@ just run like this:
 # Note: 
 #   --target: for agents which are read-only
 #   --add-target: for agents which can support adding keys via ssh-add
-$ ssh-agents-multiplexer --add-target /path/to/work-agent.sock --target /path/to/personal-agent.sock
+$ ssh-agents-multiplexer --add-target /path/to/work-agent.sock --target /path/to/personal-agent.sock --listen=/path/to/agent.sock
 2022-09-28T23:06:59+09:00 INF revision=4b48f3b version=0.0.2
-2022-09-28T23:06:59+09:00 INF Agent multiplexer listening listen=/var/folders/2s/41bhrr7d0r76pkkb9kgjtk0h0000gn/T/ssh-agent-multiplexer-90668.sock
+2022-09-28T23:06:59+09:00 INF Agent multiplexer listening listen=/path/to/agent.sock
 ```
 
-Then, an multiplexer agent is listening at `/var/..../ssh-agent-multiplexer-90668.sock`.  So, You can use the socket as an usual ssh agent.
+Then, an multiplexer agent is listening at `/path/to/agent.sock/agent.sock`.  So, You can use the socket as an usual ssh agent.
 
 ```shell
-$ export SSH_AUTH_SOCK=/var/folders/2s/41bhrr7d0r76pkkb9kgjtk0h0000gn/T/ssh-agent-multiplexer-90668.sock
+$ export SSH_AUTH_SOCK=/path/to/agent.sock/agent.sock
 
 # this shows all the keys in target agents (both --target and --add-target)
 $ ssh-add -l
@@ -94,7 +94,7 @@ Example:
 ssh-agent-multiplexer \
   --add-target /path/to/work-agent.sock \
   --add-target /path/to/personal-agent.sock \
-  --target /path/to/another-agent.sock \
+  --target /path/to/agent.sock \
   # other flags...
 ```
 
@@ -123,11 +123,11 @@ Example:
 ssh-agent-multiplexer \
   --add-target /path/to/work-agent.sock \
   --add-target /path/to/personal-agent.sock \
-  --select-target-command "/usr/local/bin/ssh-agent-mux-select" \
-  --listen /tmp/mux.sock
+  --select-target-command "/path/to/ssh-agent-mux-select" \
+  --listen /path/to/agent.sock
 ```
 
-Now, running `ssh-add <your_key>` (while `SSH_AUTH_SOCK` points to `/tmp/mux.sock`) will trigger `/usr/local/bin/ssh-agent-mux-select`, allowing you to choose between `work-agent.sock` and `personal-agent.sock`.
+Now, running `ssh-add <your_key>` (while `SSH_AUTH_SOCK` points to `/path/to/agent.sock`) will trigger `/path/to/ssh-agent-mux-select`, allowing you to choose between `work-agent.sock` and `personal-agent.sock`.
 
 ### The `ssh-agent-mux-select` helper tool
 
