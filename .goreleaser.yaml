@@ -76,7 +76,7 @@ brews:
   description: "{{ .ProjectName }}: a small program which multiplexes running ssh agents"
   repository:
     owner: everpeace
-    name: "{{ .ProjectName }}"
+    name: homebrew-tap
   license: Apache-2.0
   skip_upload: auto
   install: |
