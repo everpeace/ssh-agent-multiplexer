@@ -149,13 +149,6 @@ func LoadViperConfig(configFilePathOverride string) (*viper.Viper, string, error
 // Returns:
 //   - error: An error if any flag binding operation fails.
 func DefineAndBindFlags(v *viper.Viper, fs *pflag.FlagSet) error {
-	// Define standard flags (help, version, config)
-	// These are not typically bound to Viper in the same way as app-specific config,
-	// but they need to be defined on the FlagSet.
-	fs.BoolP("version", "v", false, "Print version and exit")
-	fs.BoolP("help", "h", false, "Print the help")
-	fs.StringP("config", "c", "", "Path to TOML configuration file. If set, this overrides default config file paths.")
-
 	// Define application-specific flags and bind them
 	var err error
 
@@ -164,7 +157,7 @@ func DefineAndBindFlags(v *viper.Viper, fs *pflag.FlagSet) error {
 		return fmt.Errorf("failed to bind 'debug' flag: %w", err)
 	}
 
-	fs.StringP("listen", "l", "", "socket path to listen for the multiplexer. it is generated automatically if not set")
+	fs.StringP("listen", "l", "", `socket path to listen for the multiplexer. It listens at "<your config path dir>/agent.sock", if not set.`)
 	if err = v.BindPFlag("listen", fs.Lookup("listen")); err != nil {
 		return fmt.Errorf("failed to bind 'listen' flag: %w", err)
 	}
