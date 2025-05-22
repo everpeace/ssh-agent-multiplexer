@@ -16,4 +16,4 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/release
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_PAT_RELEASE }}

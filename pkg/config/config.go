@@ -26,7 +26,7 @@ var (
 // typically populated from command-line flags and a configuration file.
 type AppConfig struct {
 	// Listen is the socket path or address for the multiplexer to listen on.
-	// If empty, a path is auto-generated in the system's temporary directory.
+	// If empty, "<directory of ConfigFilePathUsed or current dir>/agent.sock" is used.
 	Listen string
 
 	// Targets is a list of paths to target SSH agents to proxy for read-only operations.
@@ -157,7 +157,7 @@ func DefineAndBindFlags(v *viper.Viper, fs *pflag.FlagSet) error {
 		return fmt.Errorf("failed to bind 'debug' flag: %w", err)
 	}
 
-	fs.StringP("listen", "l", "", `socket path to listen for the multiplexer. It listens at "<your config path dir>/agent.sock", if not set.`)
+	fs.StringP("listen", "l", "", `socket path to listen for the multiplexer. It listens at "<your config file dir or current dir>/agent.sock", if not set.`)
 	if err = v.BindPFlag("listen", fs.Lookup("listen")); err != nil {
 		return fmt.Errorf("failed to bind 'listen' flag: %w", err)
 	}
