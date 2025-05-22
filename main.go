@@ -11,7 +11,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"path"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -68,6 +68,10 @@ func main() {
 	mainFlagSet := pflag.NewFlagSet(os.Args[0], pflag.ExitOnError) // ExitOnError will handle parsing errors and print usage.
 
 	// 4. Define and Bind Flags
+	// Define standard flags (help, version, config)
+	mainFlagSet.BoolP("version", "v", false, "Print version and exit")
+	mainFlagSet.BoolP("help", "h", false, "Print the help")
+	mainFlagSet.StringP("config", "c", "", "Path to TOML configuration file. If set, this overrides default config file paths.")
 	if err := config.DefineAndBindFlags(v, mainFlagSet); err != nil {
 		log.Fatal().Err(err).Msg("Failed to define or bind flags")
 	}
@@ -123,7 +127,11 @@ func main() {
 	// 10. Initializing socket to listen (using appCfg)
 	effectiveListen := appCfg.Listen
 	if effectiveListen == "" {
-		effectiveListen = path.Join(os.TempDir(), fmt.Sprintf("ssh-agent-multiplexer-%d.sock", os.Getpid()))
+		sockDir, err := filepath.Abs(filepath.Dir(appCfg.ConfigFilePathUsed))
+		if err != nil {
+			log.Fatal().Err(err).Str("configFilePath", appCfg.ConfigFilePathUsed).Msg("Failed to resolve absolute config path dir")
+		}
+		effectiveListen = filepath.Join(sockDir, "agent.sock")
 	}
 
 	// Setup signal handling and listener
