@@ -24,15 +24,9 @@ jobs:
       # > workflow_dispatch and repository_dispatch, will not create 
       # > a new workflow run.
       # ref: https://docs.github.com/en/actions/security-guides/automatic-token-authentication#using-the-github_token-in-a-workflow
-    - name: Generate ssh-agent-multiplexer-releaser-bot token
-      id: generate-releaser-bot-token
-      uses: actions/create-github-app-token@v2
-      with:
-        app-id: ${{ vars.RELEASER_BOT_APP_ID }}
-        private-key: ${{ secrets.RELEASER_BOT_PRIVATE_KEY }}
     - name: "Release (only when tagged)"
       uses: ./.github/actions/release
       if: "steps.tagpr.outputs.tag != ''"
       with:
         tag: ${{ steps.tagpr.outputs.tag }}
-        token: ${{ steps.generate-releaser-bot-token.outputs.token }}
+        token: ${{ secrets.GH_PAT_RELEASE }}
