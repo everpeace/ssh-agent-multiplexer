@@ -146,16 +146,23 @@ func main() {
 	}()
 
 	// Create agents (using appCfg)
+	var addTargetAgents []*pkg.Agent
+	if len(appCfg.AddTargets) == 0 {
+		log.Warn().Msg("No add-target agents specified. The multiplexer cannot add any keys. Please specify --add-target if you want.")
+	}
+	if len(appCfg.AddTargets) > 0 {
+		for _, atPath := range appCfg.AddTargets {
+			addTargetAgents = append(addTargetAgents, pkg.MustNewAgent(atPath))
+		}
+	}
+
 	targetAgents := []*pkg.Agent{}
 	for _, t := range appCfg.Targets {
 		targetAgents = append(targetAgents, pkg.MustNewAgent(t))
 	}
 
-	var addTargetAgents []*pkg.Agent
-	if len(appCfg.AddTargets) > 0 {
-		for _, atPath := range appCfg.AddTargets {
-			addTargetAgents = append(addTargetAgents, pkg.MustNewAgent(atPath))
-		}
+	if len(targetAgents)+len(addTargetAgents) == 0 {
+		log.Warn().Msg("No target agents specified. The multiplexer would not so useful. Please specify --target/--add-target.")
 	}
 
 	agt := pkg.NewMuxAgent(targetAgents, addTargetAgents, appCfg.SelectTargetCommand)

@@ -41,10 +41,10 @@ func (a *Agent) connect() error {
 	defer a.lock.Unlock()
 
 	conn, err := net.Dial("unix", a.path)
-	a.logger.Debug().Msg("Connected the agent successfully")
 	if err != nil {
 		return err
 	}
+	a.logger.Debug().Msg("Connected the agent successfully")
 	a.agent = agent.NewClient(conn)
 	return nil
 }
