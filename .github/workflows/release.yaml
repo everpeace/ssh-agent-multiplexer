@@ -21,6 +21,7 @@ jobs:
         with:
           app-id: ${{ vars.RELEASER_BOT_APP_ID }}
           private-key: ${{ secrets.RELEASER_BOT_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
       - uses: ./.github/actions/release
         with:
           tag: ${{ github.ref_name }}
