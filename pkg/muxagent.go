@@ -202,8 +202,8 @@ func (m *MuxAgent) Sign(key ssh.PublicKey, data []byte) (*ssh.Signature, error) 
 	}
 	for _, e := range mapping {
 		logger := log.With().Str("method", "Sign").Str("path", e.agt.path).Logger()
-		// Compare public keys using ssh.KeysEqual for robustness
-		if ssh.KeysEqual(e.pk, key) {
+		// Reverted public key comparison
+		if e.pk.Type() == key.Type() && bytes.Equal(e.pk.Marshal(), key.Marshal()) {
 			signature, errSign := e.agt.Sign(key, data)
 			if errSign != nil {
 				logger.Error().Err(errSign).Msg("Failed to sign")
@@ -424,7 +424,8 @@ func (m *MuxAgent) Remove(key ssh.PublicKey) error {
 
 	for _, e := range mapping {
 		logger := log.With().Str("method", "Remove").Str("path", e.agt.path).Logger()
-		if ssh.KeysEqual(e.pk, key) {
+		// Reverted public key comparison
+		if e.pk.Type() == key.Type() && bytes.Equal(e.pk.Marshal(), key.Marshal()) {
 			// The Remove operation on selectedAgent is external.
 			errRemove := e.agt.Remove(key)
 			if errRemove != nil {
@@ -513,7 +514,8 @@ func (m *MuxAgent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent.Sig
 
 	for _, e := range mapping {
 		logger := log.With().Str("method", "SignWithFlags").Str("path", e.agt.path).Logger()
-		if ssh.KeysEqual(e.pk, key) {
+		// Reverted public key comparison
+		if e.pk.Type() == key.Type() && bytes.Equal(e.pk.Marshal(), key.Marshal()) {
 			signature, errSign := e.agt.SignWithFlags(key, data, flags)
 			if errSign != nil {
 				// Check if the error is because the agent doesn't support this extension

@@ -1,10 +1,15 @@
+// Licensed to Shingo Omura under one or more agreements.
+// Shingo Omura licenses this file to you under the Apache 2.0 License.
+// See the LICENSE file in the project root for more information.
+
 package main
 
 import (
 	"bytes"
 	"context" // Added
-	"errors"  // Added
-	"fmt"     // Added
+
+	// Added
+	"fmt" // Added
 	"os"
 	"path/filepath"
 	"strings"
@@ -98,7 +103,7 @@ func createDummySocket(t *testing.T, agentPath string) (path string, cleanup fun
 	_ = os.Remove(sockPath) // remove if exists from a previous failed test
 	f, err := os.Create(sockPath)
 	require.NoError(t, err, "Failed to create dummy socket file: %s", sockPath)
-	f.Close()
+	_ = f.Close() // Add error handling for file close
 	return sockPath, func() {
 		_ = os.Remove(sockPath)
 	}

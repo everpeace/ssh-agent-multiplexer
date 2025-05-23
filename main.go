@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -187,6 +188,35 @@ func main() {
 	signalCtx, cancelSignalCtx := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancelSignalCtx()
 
+	// Initialize effectiveListen and agt here, before the goroutine is launched,
+	// so they are correctly captured by the closure.
+	effectiveListen := appCfg.Listen
+	if effectiveListen == "" {
+		sockDir := "." // Default to current directory if no config file path is available for context
+		if appCfg.ConfigFilePathUsed != "" {
+			var pathErr error
+			sockDir, pathErr = filepath.Abs(filepath.Dir(appCfg.ConfigFilePathUsed))
+			if pathErr != nil {
+				// This is a fatal error because we can't determine a listen path.
+				log.Fatal().Err(pathErr).Str("configFilePath", appCfg.ConfigFilePathUsed).Msg("Failed to resolve absolute config path dir for default socket.")
+			}
+		}
+		effectiveListen = filepath.Join(sockDir, "agent.sock")
+		log.Info().Str("path", effectiveListen).Msgf("Listen path is not configured, using default.")
+	}
+
+	// Warnings for no targets are still useful here as a high-level check.
+	if len(appCfg.AddTargets) == 0 {
+		log.Warn().Msg("No add-target agents specified in the configuration. The multiplexer cannot add any keys. Please specify 'add_targets' in config or --add-target if you want.")
+	}
+	if len(appCfg.Targets) == 0 && len(appCfg.AddTargets) == 0 {
+		log.Warn().Msg("No target or add-target agents specified in the configuration. The multiplexer may not be very useful. Please specify 'targets' or 'add_targets' in config or use --target/--add-target.")
+	}
+
+	// Initialize MuxAgent directly with appCfg.
+	// Merged declaration and assignment for staticcheck S1021
+	agt := pkg.NewMuxAgent(appCfg) // Initialize agt. NewMuxAgent handles its own logging.
+
 	// Setup configuration reloading using fsnotify if a config file is in use.
 	if appCfg.ConfigFilePathUsed != "" {
 		watcher, err := fsnotify.NewWatcher()
@@ -267,23 +297,9 @@ func main() {
 		}
 	}
 
-	// Initialize socket to listen.
-	// TODO: This part (and agent creation below) will need to be refactored
-	// if the listen address or agent configurations can change on reload and need to be applied live.
-	effectiveListen := appCfg.Listen
-	if effectiveListen == "" {
-		sockDir := "." // Default to current directory if no config file path is available for context
-		if appCfg.ConfigFilePathUsed != "" {
-			var pathErr error
-			sockDir, pathErr = filepath.Abs(filepath.Dir(appCfg.ConfigFilePathUsed))
-			if pathErr != nil {
-				log.Fatal().Err(pathErr).Str("configFilePath", appCfg.ConfigFilePathUsed).Msg("Failed to resolve absolute config path dir for default socket.")
-			}
-		}
-		effectiveListen = filepath.Join(sockDir, "agent.sock")
-		log.Info().Str("path", effectiveListen).Msgf("Listen path is not configured, using default.")
-	}
-
+	// Initialize socket to listen using the effectiveListen determined before goroutine launch.
+	// No TODO needed here anymore for effectiveListen, as it's the startup one.
+	// If listen address changes, a restart is warned by the watcher.
 	l, err := (&net.ListenConfig{}).Listen(signalCtx, "unix", effectiveListen)
 	if err != nil {
 		log.Fatal().Err(err).Str("listen_path", effectiveListen).Msg("Failed to listen on socket")
@@ -292,6 +308,7 @@ func main() {
 	go func() {
 		<-signalCtx.Done() // Wait for shutdown signal.
 		log.Info().Msg("Shutdown signal received. Closing listener socket.")
+		// Use the 'effectiveListen' captured by this closure (the startup one).
 		logger := log.With().Str("listen", effectiveListen).Logger()
 		if err := l.Close(); err != nil {
 			logger.Error().Err(err).Msg("Failed to close the listener socket during shutdown.")
@@ -301,28 +318,13 @@ func main() {
 		cancelCleanupCtx() // Signal that cleanup is complete.
 	}()
 
-	// Create agents.
-	// The MuxAgent will be initialized using the AppConfig.
-	// Warnings for no targets are still useful here as a high-level check.
-	if len(appCfg.AddTargets) == 0 {
-		log.Warn().Msg("No add-target agents specified in the configuration. The multiplexer cannot add any keys. Please specify 'add_targets' in config or --add-target if you want.")
-	}
-	if len(appCfg.Targets) == 0 && len(appCfg.AddTargets) == 0 {
-		log.Warn().Msg("No target or add-target agents specified in the configuration. The multiplexer may not be very useful. Please specify 'targets' or 'add_targets' in config or use --target/--add-target.")
-	}
-
-	// agt is declared here and will be captured by the config watcher goroutine.
-	// It will also be used by the connection handling goroutines.
-	// It's important that agt itself (the pointer) is not reassigned after this point,
-	// but rather its internal state is updated via UpdateConfig.
-	var agt agent.ExtendedAgent // Use the interface type
-	// Initialize MuxAgent directly with appCfg.
-	// NewMuxAgent will internally handle creating Agent instances for paths in appCfg.
-	agt = pkg.NewMuxAgent(appCfg)
-	// Log message "Succeed to connect all the target agents." is now effectively handled by NewMuxAgent's internal logging.
-	// If NewMuxAgent panics (due to MustNewAgent), the application will exit, which is the expected behavior.
+	// Note: `agt` is already initialized before the watcher goroutine.
+	// The warnings about no targets are also already handled before this point.
+	// The previous TODO about `agt` being updated is now handled by the watcher goroutine
+	// calling `agt.UpdateConfig()`.
 
 	// Main accept loop for incoming agent connections.
+	// Uses 'effectiveListen' (the startup one) and 'agt' (the potentially updated one).
 	log.Info().Str("listen", effectiveListen).Msg("SSH Agent Multiplexer listening")
 	for {
 		c, err := l.Accept()
