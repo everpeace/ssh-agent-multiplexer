@@ -5,23 +5,20 @@
 package main
 
 import (
-	"context"
 	"fmt"
-	"io"
-	"net"
+	"io" // For pflag.ErrHelp and preParseFs.SetOutput(io.Discard)
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
-	"time"
+	"time" // Required for initial logger setup if it uses TimeFormat
 
+	"github.com/everpeace/ssh-agent-multiplexer/pkg"
+	"github.com/everpeace/ssh-agent-multiplexer/pkg/config" // Needed for config.DefineAndBindFlags
+	"github.com/everpeace/ssh-agent-multiplexer/pkg/server" // Updated import path (single instance)
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/pflag"
-	"golang.org/x/crypto/ssh/agent"
-
-	"github.com/everpeace/ssh-agent-multiplexer/pkg"
-	"github.com/everpeace/ssh-agent-multiplexer/pkg/config"
+	"github.com/spf13/viper" // Needed for config.DefineAndBindFlags
 )
 
 var (
@@ -30,176 +27,93 @@ var (
 	Revision string
 )
 
-// Comment out the old global config variables
-// var (
-// 	listen              string
-// 	targets             []string
-// 	addTargets          []string
-// 	selectTargetCommand string
-// 	debug               bool
-// 	configFile          string
-// )
-
-// Comment out or remove the old setupConfiguration function
-/*
-func setupConfiguration(args []string) (v *viper.Viper, helpFlag *bool, versionFlag *bool, err error) {
-	// ... old implementation ...
-}
-*/
-
 func main() {
-	// 1. Pre-parse --config flag
+	// 1. Pre-parse --config flag value to pass to NewApp if specified.
 	configFlagValue := ""
 	preParseFs := pflag.NewFlagSet("preparse", pflag.ContinueOnError)
-	preParseFs.SetOutput(io.Discard) // Suppress output during preparse
-	preParseFs.StringVarP(&configFlagValue, "config", "c", "", "Path to a configuration file")
-	// Parse all args, but we only care about --config. Errors are ignored.
+	preParseFs.SetOutput(io.Discard) // Suppress output during this preparse.
+	preParseFs.StringVarP(&configFlagValue, "config", "c", "", "Path to a configuration file.")
 	_ = preParseFs.Parse(os.Args[1:])
 
-	// 2. Load Viper Config
-	v, configFileUsed, err := config.LoadViperConfig(configFlagValue)
-	if err != nil {
-		// Log fatal only if a specific config file was given and failed to load.
-		// If configFlagValue is empty, LoadViperConfig only errors on malformed default config, not missing.
-		log.Fatal().Err(err).Msgf("Failed to load configuration")
-	}
-
-	// 3. Create Main FlagSet
-	mainFlagSet := pflag.NewFlagSet(os.Args[0], pflag.ExitOnError) // ExitOnError will handle parsing errors and print usage.
-
-	// 4. Define and Bind Flags
-	// Define standard flags (help, version, config)
-	mainFlagSet.BoolP("version", "v", false, "Print version and exit")
-	mainFlagSet.BoolP("help", "h", false, "Print the help")
-	mainFlagSet.StringP("config", "c", "", "Path to TOML configuration file. If set, this overrides default config file paths.")
-	if err := config.DefineAndBindFlags(v, mainFlagSet); err != nil {
-		log.Fatal().Err(err).Msg("Failed to define or bind flags")
-	}
-
-	// 5. Parse Command-Line Arguments
-	if err := mainFlagSet.Parse(os.Args[1:]); err != nil {
-		// ExitOnError above should handle this, but good practice to check.
-		log.Fatal().Err(err).Msg("Failed to parse command-line arguments")
-	}
-
-	// 6. Handle --help and --version flags
-	if help, _ := mainFlagSet.GetBool("help"); help {
-		// For pflag.ExitOnError, help is typically handled automatically.
-		// This explicit check is more for pflag.ContinueOnError or if customized help is needed.
-		// However, pflag.ExitOnError usually exits before this point if --help is passed.
-		// If we reach here, it means ExitOnError didn't exit (e.g. if it was changed to ContinueOnError).
-		_, _ = fmt.Fprintf(os.Stdout, "Usage of %s:\n", os.Args[0])
+	// 2. Define and Parse All Command-Line Flags.
+	v := viper.New() // Viper instance for flag binding.
+	mainFlagSet := pflag.NewFlagSet(os.Args[0], pflag.ExitOnError)
+	mainFlagSet.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
 		mainFlagSet.PrintDefaults()
+	}
+
+	mainFlagSet.BoolP("version", "v", false, "Print version and exit.")
+	mainFlagSet.BoolP("help", "h", false, "Print this help message and exit.")
+	mainFlagSet.StringP("config", "c", configFlagValue, "Path to a configuration file.")
+
+	// var cliListenOverride string
+	// mainFlagSet.StringVarP(&cliListenOverride, "listen", "l", "", "Path to the unix domain socket to listen on. Overrides config file if set.")
+
+	// Define other flags that server.NewApp will expect to be bound in Viper.
+	// config.DefineAndBindFlags handles this.
+	if err := config.DefineAndBindFlags(v, mainFlagSet); err != nil {
+		log.Fatal().Err(err).Msg("Failed to define and bind application flags.")
+	}
+
+	if err := mainFlagSet.Parse(os.Args[1:]); err != nil {
+		log.Fatal().Err(err).Msg("Failed to parse command-line arguments.")
+	}
+
+	if help, _ := mainFlagSet.GetBool("help"); help {
+		mainFlagSet.Usage()
 		os.Exit(0)
 	}
 	if ver, _ := mainFlagSet.GetBool("version"); ver {
-		fmt.Printf("Version=%s, Revision=%s\n", Version, Revision)
+		fmt.Printf("ssh-agent-multiplexer Version=%s, Revision=%s\n", Version, Revision)
 		os.Exit(0)
 	}
 
-	// 7. Get Final Application Configuration
-	appCfg := config.GetAppConfig(v, configFileUsed)
+	// 3. Minimal Initial Logging Setup.
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339})
+	zerolog.SetGlobalLevel(zerolog.InfoLevel) // App can change this based on its config.
 
-	// 8. Logging Setup
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339, NoColor: true})
-	zerolog.SetGlobalLevel(zerolog.InfoLevel)
-	if appCfg.Debug {
-		zerolog.SetGlobalLevel(zerolog.DebugLevel)
-	}
-	log.Info().Str("version", Version).Str("revision", Revision).Msg("ssh-agent-multiplexer starting")
-	if appCfg.ConfigFilePathUsed != "" {
-		log.Info().Str("path", appCfg.ConfigFilePathUsed).Msg("Loaded configuration from")
-	}
-	log.Info().Object("config", appCfg).Msg("Effective config")
+	// 4. Agent Creator Function.
+	agentCreatorFunc := pkg.NewAgent
 
-	// 9. Validation (using appCfg)
-	for _, t := range appCfg.Targets {
-		for _, at := range appCfg.AddTargets {
-			if t == at {
-				log.Fatal().Msg("Target paths must not include add-target path")
-			}
-		}
-	}
-	if len(appCfg.AddTargets) > 1 && appCfg.SelectTargetCommand == "" {
-		log.Fatal().Msg("When specifying multiple --add-target agents, --select-target-command must also be provided.")
-	}
-
-	// 10. Initializing socket to listen (using appCfg)
-	effectiveListen := appCfg.Listen
-	if effectiveListen == "" {
-		sockDir, err := filepath.Abs(filepath.Dir(appCfg.ConfigFilePathUsed))
-		if err != nil {
-			log.Fatal().Err(err).Str("configFilePath", appCfg.ConfigFilePathUsed).Msg("Failed to resolve absolute config path dir")
-		}
-		effectiveListen = filepath.Join(sockDir, "agent.sock")
-	}
-
-	// Setup signal handling and listener
-	signalCtx, cancelSignalCtx := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancelSignalCtx()
-	l, err := (&net.ListenConfig{}).Listen(signalCtx, "unix", effectiveListen)
+	// 5. Create and Initialize the App.
+	// Note: `cliListenOverride` is directly from parsed flags.
+	// `configFlagValue` (path to config file) is also from flags.
+	// Other config values (debug, targets, etc.) are expected to be picked up by
+	// server.NewApp through its internal call to config.GetAppConfig(v, configFileUsed),
+	// where 'v' has been populated by config.DefineAndBindFlags and mainFlagSet.Parse().
+	app, err := server.NewApp(configFlagValue, agentCreatorFunc, Version, Revision)
 	if err != nil {
-		log.Fatal().Err(err).Str("listen_path", effectiveListen).Msg("Failed to listen on socket")
+		log.Fatal().Err(err).Msg("Failed to initialize application.")
 	}
-	cleanupCtx, cancelCleanupCtx := context.WithCancel(context.Background())
+
+	// 6. Setup OS Signal Handling for graceful shutdown.
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	// 7. Start the application in a goroutine.
+	appErrChan := make(chan error, 1) // Channel to receive error from app.Start()
 	go func() {
-		<-signalCtx.Done()
-		logger := log.With().Str("listen", effectiveListen).Logger()
-		if err := l.Close(); err != nil {
-			logger.Error().Err(err).Msg("Failed to close the socket") // Changed to Error from Fatal for graceful shutdown
-		} else {
-			logger.Info().Msg("Closed the socket")
-		}
-		cancelCleanupCtx()
+		log.Info().Msg("Application starting...")
+		appErrChan <- app.Start()
 	}()
 
-	// Create agents (using appCfg)
-	var addTargetAgents []*pkg.Agent
-	if len(appCfg.AddTargets) == 0 {
-		log.Warn().Msg("No add-target agents specified. The multiplexer cannot add any keys. Please specify --add-target if you want.")
-	}
-	if len(appCfg.AddTargets) > 0 {
-		for _, atPath := range appCfg.AddTargets {
-			addTargetAgents = append(addTargetAgents, pkg.MustNewAgent(atPath))
-		}
-	}
-
-	targetAgents := []*pkg.Agent{}
-	for _, t := range appCfg.Targets {
-		targetAgents = append(targetAgents, pkg.MustNewAgent(t))
-	}
-
-	if len(targetAgents)+len(addTargetAgents) == 0 {
-		log.Warn().Msg("No target agents specified. The multiplexer would not so useful. Please specify --target/--add-target.")
-	}
-
-	agt := pkg.NewMuxAgent(targetAgents, addTargetAgents, appCfg.SelectTargetCommand)
-	log.Debug().Msg("Succeed to connect all the target agents.")
-
-	// Main accept loop
-	log.Info().Str("listen", effectiveListen).Msg("SSH Agent Multiplexer listening")
-	for {
-		c, err := l.Accept()
+	// 8. Wait for a shutdown signal or an error from app.Start().
+	select {
+	case s := <-sigChan:
+		log.Info().Str("signal", s.String()).Msg("Received OS signal, initiating graceful shutdown...")
+	case err := <-appErrChan:
 		if err != nil {
-			select {
-			case <-signalCtx.Done(): // Graceful shutdown initiated
-				log.Info().Msg("Server shutting down due to signal.")
-			case <-cleanupCtx.Done(): // Graceful shutdown initiated by closing listener
-				log.Info().Msg("Server shutting down due to listener closed.")
-			default: // Other accept error
-				log.Error().Err(err).Msg("Failed to accept connection")
-			}
-			break // Exit loop on error or shutdown signal
+			log.Error().Err(err).Msg("Application exited with error.")
+		} else {
+			log.Info().Msg("Application exited normally.")
 		}
-		go func(conn net.Conn) {
-			defer func() { _ = conn.Close() }() // Ensure connection is closed for each goroutine
-			err := agent.ServeAgent(agt, conn)
-			if err != nil && err != io.EOF {
-				log.Error().Err(err).Msg("Error in serving agent")
-			}
-		}(c)
 	}
 
-	<-cleanupCtx.Done() // Wait for cleanup goroutine (socket close) to complete
-	log.Info().Msg("Agent multiplexer exited gracefully")
+	// 9. Stop the application.
+	// server.App.Stop() is void and handles its own logging for errors during shutdown.
+	app.Stop()
+
+	log.Info().Msg("Shutdown complete.")
+	os.Exit(0)
 }

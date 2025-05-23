@@ -31,7 +31,7 @@ lint:  ## Run lint
 
 .PHONY: test
 test:  ## Run tests
-	go test ./pkg/...
+	go test ./...
 
 .PHONY: fmt
 fmt:  ## Format code
