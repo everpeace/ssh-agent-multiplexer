@@ -45,6 +45,8 @@ _This quickstart is available only when installed via Homebrew._
   export SSH_AUTH_SOCK="<your config dir>/agent.sock"
   ```
 
+Note: ssh-agent-multiplexer supports dynamic configuration reloading. You don't need to restart your service when you updated the config file. Please see [Dynamic Configuration Reloading](#dynamic-configuration-reloading) section for details.
+
 ## `ssh-agent-multiplexer` CLI
 
 You can run `ssh-agent-multiplexer` on-demand. If you would like to
@@ -130,7 +132,6 @@ ssh-agent-multiplexer \
 Now, running `ssh-add <your_key>` (while `SSH_AUTH_SOCK` points to `/path/to/agent.sock`) will trigger `/path/to/ssh-agent-mux-select`, allowing you to choose between `work-agent.sock` and `personal-agent.sock`.
 
 ### The `ssh-agent-mux-select` helper tool
-
 This project now bundles a helper tool named `ssh-agent-mux-select`. If you've installed `ssh-agent-multiplexer` (e.g., via `go install` or from a release package), this tool should be available in your path. It's designed to be a user-friendly default for the `--select-target-command` flag.
 
 `ssh-agent-mux-select` behavior:
@@ -210,6 +211,19 @@ add_targets = [
 ```
 
 The keys in the TOML file generally map to their respective command-line flags. For flags that can be specified multiple times (like `--target` and `--add-target`), these are represented as arrays in the TOML file.
+
+### Dynamic Configuration Reloading
+
+`ssh-agent-multiplexer` supports dynamic reloading of its configuration file. If the configuration file that was loaded at startup is modified, the application will detect the changes and attempt to reload the configuration automatically.
+
+The following configuration settings can be dynamically changed and will be applied upon a successful reload:
+
+*   `targets`: The list of read-only agent sockets.
+*   `add_targets`: The list of agent sockets that can handle key additions.
+*   `select_target_command`: The command used to select an agent when multiple `add_targets` are specified.
+*   `debug`: The verbosity level of logging.
+
+**Important:** The `listen` address (the socket path where `ssh-agent-multiplexer` listens) **cannot** be changed dynamically. If you modify the `listen` setting in the configuration file, a full restart of the `ssh-agent-multiplexer` application is required for this change to take effect.
 
 ## Release
 
