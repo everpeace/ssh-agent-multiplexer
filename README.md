@@ -104,7 +104,7 @@ In this scenario, when you run `ssh-add <your_key>`, `ssh-agent-multiplexer` nee
 
 ### Selecting the target agent with `--select-target-command`
 
-When more than one `--add-target` is specified, the `--select-target-command` flag is **required**. This flag specifies an external command or script that `ssh-agent-multiplexer` will execute each time an `ssh-add` operation (that adds a key) is invoked. The purpose of this command is to allow you (the user) to choose which of the specified `--add-target` agents will be used for the operation.
+When more than one `--add-target` is specified, the `--select-target-command` flag can be specified ('`ssh-agent-mux-select`' is the default value. See the next section.). This flag specifies an external command or script that `ssh-agent-multiplexer` will execute each time an `ssh-add` operation (that adds a key) is invoked. The purpose of this command is to allow you (the user) to choose which of the specified `--add-target` agents will be used for the operation.
 
 The `ssh-agent-multiplexer` will set the following environment variables when executing this command:
 

@@ -561,9 +561,7 @@ func (app *App) reloadConfigAndApplyInternal() error {
 		}
 	}
 	if len(newCfg.AddTargets) > 1 && newCfg.SelectTargetCommand == "" {
-		valErr = errors.New("validation error: select-target-command is required when multiple add-target agents are specified")
-		app.logger.Error().Err(valErr).Msg("Configuration validation failed during reload")
-		return valErr
+		newCfg.SelectTargetCommand = config.DefaultSelectTargetCommand
 	}
 	app.logger.Debug().Msg("Configuration validation successful during reload")
 

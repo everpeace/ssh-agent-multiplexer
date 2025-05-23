@@ -18,6 +18,10 @@ import (
 	"github.com/spf13/viper"
 )
 
+const (
+	DefaultSelectTargetCommand = "ssh-agent-mux-select"
+)
+
 var (
 	_ zerolog.LogObjectMarshaler = &AppConfig{}
 )
@@ -172,7 +176,7 @@ func DefineAndBindFlags(v *viper.Viper, fs *pflag.FlagSet) error {
 		return fmt.Errorf("failed to bind 'add_targets' flag: %w", err)
 	}
 
-	fs.String("select-target-command", "ssh-agent-mux-select", "command to execute to select a target when multiple --add-target agents are specified.")
+	fs.String("select-target-command", DefaultSelectTargetCommand, "command to execute to select a target when multiple --add-target agents are specified.")
 	if err = v.BindPFlag("select_target_command", fs.Lookup("select-target-command")); err != nil { // TOML key is "select_target_command"
 		return fmt.Errorf("failed to bind 'select_target_command' flag: %w", err)
 	}
