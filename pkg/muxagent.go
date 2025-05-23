@@ -7,6 +7,7 @@ package pkg
 import (
 	"bytes"
 	"crypto" // For crypto.Signer
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"      // For os.Environ, exec.Command
@@ -250,7 +251,7 @@ func (m *MuxAgent) Add(key agent.AddedKey) error {
 		for _, agent := range addTargetsCopy { // Use copy
 			targetPaths = append(targetPaths, agent.path)
 		}
-		targetsEnvVar := strings.Join(targetPaths, "\n")
+		// targetsEnvVar := strings.Join(targetPaths, "\n") // No longer needed
 
 		// Construct SSH_AGENT_MUX_KEY_INFO
 		var sshPubKey ssh.PublicKey
@@ -283,18 +284,30 @@ func (m *MuxAgent) Add(key agent.AddedKey) error {
 		}
 		keyInfoString := strings.Join(keyInfoParts, ";")
 
+		jsonData := struct {
+			Targets []string `json:"targets"`
+			KeyInfo string   `json:"key_info,omitempty"`
+		}{
+			Targets: targetPaths,
+			KeyInfo: keyInfoString,
+		}
+
+		jsonBytes, err := json.Marshal(jsonData)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to marshal data for select-target-command")
+			return fmt.Errorf("failed to marshal data for select-target-command: %w", err)
+		}
+
 		cmd := exec.Command(selectCmd) // Use copied field
-		env := os.Environ()
-		env = append(env, "SSH_AGENT_MUX_TARGETS="+targetsEnvVar)
-		env = append(env, "SSH_AGENT_MUX_KEY_INFO="+keyInfoString)
-		cmd.Env = env
+		cmd.Env = os.Environ()         // Inherit environment
+		cmd.Stdin = bytes.NewReader(jsonBytes)
 
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
 
-		log.Debug().Str("command", selectCmd).Strs("env_targets", targetPaths).Msg("Executing select-target-command")
-		err := cmd.Run()
+		log.Debug().Str("command", selectCmd).Msg("Executing select-target-command with JSON stdin")
+		err = cmd.Run()
 		if err != nil {
 			log.Error().Err(err).Str("command", selectCmd).Str("stderr", stderr.String()).Msg("Failed to execute select-target-command")
 			return fmt.Errorf("failed to execute select-target-command '%s': %w. Stderr: %s", selectCmd, err, stderr.String())

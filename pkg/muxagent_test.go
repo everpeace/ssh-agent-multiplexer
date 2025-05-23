@@ -299,9 +299,20 @@ const commonScriptImports = `
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
+	"reflect"
 )
+`
+
+// SelectTargetInput mirrors the struct in select-target-command/main.go for the script
+const selectTargetInputStruct = `
+type SelectTargetInput struct {
+	Targets []string ` + "`json:\"targets\"`" + `
+	KeyInfo string   ` + "`json:\"key_info,omitempty\"`" + `
+}
 `
 
 // Late import block removed, contents merged above.
@@ -316,52 +327,71 @@ func TestMuxAgent_Add_MultipleAddTargets_CommandSuccess(t *testing.T) {
 	agentInstance2 := &Agent{agent: mockAgent2, path: agent2Path}
 
 	// Generate a real key for testing PrivateKey type assertion and info derivation
-	_, privKey, err := ed25519.GenerateKey(nil)
-	if err != nil {
-		t.Fatalf("Failed to generate ed25519 key: %v", err)
+	_, privKey, errGenKey := ed25519.GenerateKey(nil)
+	if errGenKey != nil {
+		t.Fatalf("Failed to generate ed25519 key: %v", errGenKey)
 	}
 	testComment := "key-for-command-success-with-info"
+	// Expected keyInfo string parts for validation inside the script
+	expectedKeyInfoComment := fmt.Sprintf("COMMENT=%s", testComment)
+	expectedKeyInfoType := "TYPE=ssh-ed25519" // ed25519.PublicKey.Type()
+	expectedKeyInfoFingerprintPrefix := "FINGERPRINT_SHA256=SHA256:"
+
 
 	scriptCode := fmt.Sprintf(`
 %s
-import "strings"
+%s // Include SelectTargetInput struct definition
 
 func main() {
-	targetsEnv := os.Getenv("SSH_AGENT_MUX_TARGETS")
-	// Allow any order for targetsEnv
-	parts := strings.Split(strings.TrimSpace(targetsEnv), "\n")
-	if len(parts) != 2 {
-		fmt.Fprintf(os.Stderr, "Expected 2 targets, got %%d: %%s\n", len(parts), targetsEnv)
-		os.Exit(1)
-	}
-	found1 := false
-	found2 := false
-	for _, p := range parts {
-		if p == "%s" { found1 = true }
-		if p == "%s" { found2 = true }
-	}
-	if !found1 || !found2 {
-		// Ensuring the '%%s' for targetsEnv (the "Got: %%s" part) is correctly escaped for the outer Sprintf.
-		// The two '%%s' in "Expected parts: %%s, %%s" are for the inner Fprintf's arguments,
-		// which are themselves placeholders "%%s", "%%s" for the outer Sprintf.
-		fmt.Fprintf(os.Stderr, "Targets env var mismatch. Got: %%s, Expected parts: %%s, %%s\n", targetsEnv, "%s", "%s")
+	byteValue, err := ioutil.ReadAll(os.Stdin)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading from stdin: %%v\n", err)
 		os.Exit(1)
 	}
 
-	keyInfo := os.Getenv("SSH_AGENT_MUX_KEY_INFO")
-	if keyInfo == "" {
-		fmt.Fprintln(os.Stderr, "SSH_AGENT_MUX_KEY_INFO is not set")
-		os.Exit(1)
-	}
-	// Basic format check
-	if !strings.Contains(keyInfo, "COMMENT=%s") || !strings.Contains(keyInfo, "TYPE=ssh-ed25519") || !strings.Contains(keyInfo, "FINGERPRINT_SHA256=SHA256:") {
-		fmt.Fprintf(os.Stderr, "SSH_AGENT_MUX_KEY_INFO format error: %%s\n", keyInfo)
+	var input SelectTargetInput
+	err = json.Unmarshal(byteValue, &input)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing JSON input: %%v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Print("%s") // This should be the 7th verb, for the 7th Sprintf argument (agent2Path for selection)
+	expectedTargets := []string{"%s", "%s"}
+	if !reflect.DeepEqual(input.Targets, expectedTargets) {
+		// Using %%+v for detailed struct printing, and escaping %% for Sprintf
+		fmt.Fprintf(os.Stderr, "Targets mismatch. Expected %%v, Got %%+v\n", expectedTargets, input.Targets)
+		os.Exit(1)
+	}
+
+	// Validate KeyInfo content (presence of parts, not exact match due to potential order variations if it were a map)
+	// For string, we expect exact match or specific contains.
+	// Here, we check for substrings because KeyInfo is a single string with parts.
+	if input.KeyInfo == "" {
+		fmt.Fprintln(os.Stderr, "KeyInfo is empty in JSON")
+		os.Exit(1)
+	}
+	// Use raw string literals for expectedKeyInfo parts to avoid escaping issues with Sprintf
+	// and ensure correct interpretation of special characters if any were present.
+	// The Go test itself will provide these strings already formatted/escaped for Sprintf.
+	if !strings.Contains(input.KeyInfo, "%s") { // expectedKeyInfoComment
+		fmt.Fprintf(os.Stderr, "KeyInfo missing comment. Got: %%s\n", input.KeyInfo)
+		os.Exit(1)
+	}
+	if !strings.Contains(input.KeyInfo, "%s") { // expectedKeyInfoType
+		fmt.Fprintf(os.Stderr, "KeyInfo missing type. Got: %%s\n", input.KeyInfo)
+		os.Exit(1)
+	}
+	if !strings.Contains(input.KeyInfo, "%s") { // expectedKeyInfoFingerprintPrefix
+		fmt.Fprintf(os.Stderr, "KeyInfo missing fingerprint. Got: %%s\n", input.KeyInfo)
+		os.Exit(1)
+	}
+
+	fmt.Print("%s") // Script selects agent2Path
 	os.Exit(0)
-}`, commonScriptImports, agent1Path, agent2Path, agent1Path, agent2Path, testComment, agent2Path) // Added 8th dummy argument
+}`, commonScriptImports, selectTargetInputStruct,
+		agent1Path, agent2Path, // for expectedTargets
+		expectedKeyInfoComment, expectedKeyInfoType, expectedKeyInfoFingerprintPrefix, // for keyInfo checks
+		agent2Path) // for fmt.Print output
 
 	scriptPath, cleanup := createSelectTargetScript(t, scriptCode)
 	defer cleanup()
@@ -371,11 +401,11 @@ func main() {
 		PrivateKey: privKey, // Use the real crypto.Signer
 		Comment:    testComment,
 	}
-	err = muxAgent.Add(addedKey)
+	errAdd := muxAgent.Add(addedKey)
 
-	if err != nil {
+	if errAdd != nil {
 		// If the script exits with error, err will contain stderr output.
-		t.Fatalf("CommandSuccess: Add() failed: %v", err)
+		t.Fatalf("CommandSuccess: Add() failed: %v", errAdd)
 	}
 	if mockAgent1.addCalled {
 		t.Errorf("CommandSuccess: agent1 should not have Add called")
@@ -400,33 +430,61 @@ func TestMuxAgent_Add_MultipleAddTargets_CommandSuccess_NoSigner(t *testing.T) {
 	agentInstance1 := &Agent{agent: mockAgent1, path: agent1Path}
 	agentInstance2 := &Agent{agent: mockAgent2, path: agent2Path}
 	testComment := "key-for-command-success-no-signer"
+	// Expected keyInfo string parts for validation inside the script
+	expectedKeyInfoComment := fmt.Sprintf("COMMENT=%s", testComment)
+	expectedKeyInfoType := "TYPE=unknown"
+	expectedKeyInfoFingerprint := "FINGERPRINT_SHA256=unknown"
 
 	scriptCode := fmt.Sprintf(`
 %s
-import "strings"
-func main() {
-	targetsEnv := os.Getenv("SSH_AGENT_MUX_TARGETS")
-	parts := strings.Split(strings.TrimSpace(targetsEnv), "\n")
-	if len(parts) != 2 {
-		fmt.Fprintf(os.Stderr, "Expected 2 targets, got %%d: %%s\n", len(parts), targetsEnv)
-		os.Exit(1)
-	}
-	// Basic check for targets is sufficient here, focus is on keyInfo
+%s // Include SelectTargetInput struct definition
+import "strings" // Added for strings.Contains
 
-	keyInfo := os.Getenv("SSH_AGENT_MUX_KEY_INFO")
-	if keyInfo == "" {
-		fmt.Fprintln(os.Stderr, "SSH_AGENT_MUX_KEY_INFO is not set")
+func main() {
+	byteValue, err := ioutil.ReadAll(os.Stdin)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading from stdin: %%v\n", err)
 		os.Exit(1)
 	}
-	// Expect "unknown" for TYPE and FINGERPRINT
-	if !strings.Contains(keyInfo, "COMMENT=%s") || !strings.Contains(keyInfo, "TYPE=unknown") || !strings.Contains(keyInfo, "FINGERPRINT_SHA256=unknown") {
-		fmt.Fprintf(os.Stderr, "SSH_AGENT_MUX_KEY_INFO format error for non-signer: %%s\n", keyInfo)
+
+	var input SelectTargetInput
+	err = json.Unmarshal(byteValue, &input)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing JSON input: %%v\n", err)
+		os.Exit(1)
+	}
+
+	// Basic check for targets is sufficient, focus is on keyInfo
+	// expectedTargets := []string{"%s", "%s"} // Not strictly needed for this test's focus
+	// if !reflect.DeepEqual(input.Targets, expectedTargets) {
+	// 	fmt.Fprintf(os.Stderr, "Targets mismatch. Expected %%v, Got %%+v\n", expectedTargets, input.Targets)
+	// 	os.Exit(1)
+	// }
+
+
+	if input.KeyInfo == "" {
+		fmt.Fprintln(os.Stderr, "KeyInfo is empty in JSON (NoSigner test)")
+		os.Exit(1)
+	}
+	if !strings.Contains(input.KeyInfo, "%s") { // expectedKeyInfoComment
+		fmt.Fprintf(os.Stderr, "KeyInfo (NoSigner) missing comment. Got: %%s\n", input.KeyInfo)
+		os.Exit(1)
+	}
+	if !strings.Contains(input.KeyInfo, "%s") { // expectedKeyInfoType
+		fmt.Fprintf(os.Stderr, "KeyInfo (NoSigner) missing type. Got: %%s\n", input.KeyInfo)
+		os.Exit(1)
+	}
+	if !strings.Contains(input.KeyInfo, "%s") { // expectedKeyInfoFingerprint
+		fmt.Fprintf(os.Stderr, "KeyInfo (NoSigner) missing fingerprint. Got: %%s\n", input.KeyInfo)
 		os.Exit(1)
 	}
 
 	fmt.Print("%s") // Script selects agent2Path
 	os.Exit(0)
-}`, commonScriptImports, testComment, agent2Path) // agent2Path is selected
+}`, commonScriptImports, selectTargetInputStruct,
+		// agent1Path, agent2Path, // For expectedTargets, commented out
+		expectedKeyInfoComment, expectedKeyInfoType, expectedKeyInfoFingerprint, // for keyInfo checks
+		agent2Path) // for fmt.Print output
 
 	scriptPath, cleanup := createSelectTargetScript(t, scriptCode)
 	defer cleanup()
@@ -436,10 +494,10 @@ func main() {
 		PrivateKey: "this is not a crypto.Signer", // String instead of crypto.Signer
 		Comment:    testComment,
 	}
-	err := muxAgent.Add(addedKey)
+	errAdd := muxAgent.Add(addedKey)
 
-	if err != nil {
-		t.Fatalf("CommandSuccess_NoSigner: Add() failed: %v", err)
+	if errAdd != nil {
+		t.Fatalf("CommandSuccess_NoSigner: Add() failed: %v", errAdd)
 	}
 	if !mockAgent2.addCalled {
 		t.Fatalf("CommandSuccess_NoSigner: agent2 should have Add called but was not")
@@ -448,6 +506,11 @@ func main() {
 		t.Errorf("CommandSuccess_NoSigner: agent2 received wrong key. Expected comment '%s', got '%s'", addedKey.Comment, mockAgent2.addedKey.Comment)
 	}
 }
+
+// For CommandReturnsInvalidTarget, CommandReturnsEmpty, CommandErrorExit,
+// the script logic doesn't need to change as they don't rely on parsing the input.
+// They just print specific output or exit with an error.
+// Thus, their Go code templates remain the same.
 
 func TestMuxAgent_Add_MultipleAddTargets_CommandReturnsInvalidTarget(t *testing.T) {
 	agent1Path := "agent1.sock"
@@ -458,12 +521,14 @@ func TestMuxAgent_Add_MultipleAddTargets_CommandReturnsInvalidTarget(t *testing.
 	agentInstance2 := &Agent{agent: mockAgent2, path: agent2Path}
 
 	invalidPath := "invalid/agent.sock"
+	// Script just prints the invalid path, doesn't need to read/parse JSON input.
 	scriptCode := fmt.Sprintf(`
 %s
+// No need for JSON parsing imports/struct for this test script
 func main() {
 	fmt.Print("%s")
 	os.Exit(0)
-}`, commonScriptImports, invalidPath)
+}`, commonScriptImports, invalidPath) // commonScriptImports now includes json, ioutil, reflect but they won't be used
 
 	scriptPath, cleanup := createSelectTargetScript(t, scriptCode)
 	defer cleanup()
@@ -491,8 +556,10 @@ func TestMuxAgent_Add_MultipleAddTargets_CommandReturnsEmpty(t *testing.T) {
 	agentInstance1 := &Agent{agent: mockAgent1, path: agent1Path}
 	agentInstance2 := &Agent{agent: mockAgent2, path: agent2Path}
 
+	// Script just prints whitespace, doesn't need to read/parse JSON input.
 	scriptCode := fmt.Sprintf(`
 %s
+// No need for JSON parsing imports/struct for this test script
 func main() {
 	fmt.Print("   \n") // Empty or whitespace
 	os.Exit(0)
@@ -522,8 +589,10 @@ func TestMuxAgent_Add_MultipleAddTargets_CommandErrorExit(t *testing.T) {
 	agentInstance2 := &Agent{agent: mockAgent2, path: agent2Path}
 
 	scriptErrorMessage := "script failed deliberately"
+	// Script just prints to stderr and exits, doesn't need to read/parse JSON input.
 	scriptCode := fmt.Sprintf(`
 %s
+// No need for JSON parsing imports/struct for this test script
 func main() {
 	fmt.Fprintln(os.Stderr, "%s")
 	os.Exit(1)

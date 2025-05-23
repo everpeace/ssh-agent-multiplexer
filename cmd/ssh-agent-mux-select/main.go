@@ -5,10 +5,18 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"strings"
 )
+
+// SelectTargetInput defines the structure for JSON input
+type SelectTargetInput struct {
+	Targets []string `json:"targets"`
+	KeyInfo string   `json:"key_info,omitempty"`
+}
 
 var (
 	Version  string
@@ -22,28 +30,36 @@ var (
 // func promptUserForSelection(targets []string, keyInfo string) (string, error)
 
 func main() {
-	targetsEnv := os.Getenv("SSH_AGENT_MUX_TARGETS")
-	if targetsEnv == "" {
-		fmt.Fprintln(os.Stderr, "Error: SSH_AGENT_MUX_TARGETS environment variable not set or empty.")
+	byteValue, err := ioutil.ReadAll(os.Stdin)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading from stdin: %v\n", err)
 		os.Exit(1)
 	}
 
-	rawTargets := strings.Split(strings.TrimSpace(targetsEnv), "\n")
-	var targets []string
-	for _, t := range rawTargets {
-		if strings.TrimSpace(t) != "" {
-			targets = append(targets, strings.TrimSpace(t))
+	var input SelectTargetInput
+	err = json.Unmarshal(byteValue, &input)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing JSON input: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Validate targets
+	var validTargets []string
+	if input.Targets != nil {
+		for _, t := range input.Targets {
+			trimmedTarget := strings.TrimSpace(t)
+			if trimmedTarget != "" {
+				validTargets = append(validTargets, trimmedTarget)
+			}
 		}
 	}
 
-	if len(targets) == 0 {
-		fmt.Fprintln(os.Stderr, "Error: No valid target paths found in SSH_AGENT_MUX_TARGETS.")
+	if len(validTargets) == 0 {
+		fmt.Fprintln(os.Stderr, "Error: No valid targets provided in JSON input.")
 		os.Exit(1)
 	}
 
-	keyInfo := os.Getenv("SSH_AGENT_MUX_KEY_INFO")
-
-	selectedTarget, err := promptUserForSelection(targets, keyInfo)
+	selectedTarget, err := promptUserForSelection(validTargets, input.KeyInfo)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error selecting target: %v\n", err)
 		os.Exit(1)
