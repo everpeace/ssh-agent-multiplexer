@@ -306,7 +306,11 @@ func main() {
 				log.Error().Err(watchErr).Msg("Failed to create fsnotify watcher for config reloading.")
 				return
 			}
-			defer watcher.Close()
+			defer func() {
+				if err := watcher.Close(); err != nil {
+					log.Error().Err(err).Msg("Error closing fsnotify watcher")
+				}
+			}()
 
 			watchDir := filepath.Dir(filePath)
 			if err := watcher.Add(watchDir); err != nil {

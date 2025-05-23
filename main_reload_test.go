@@ -92,23 +92,6 @@ func setupInitialState(t *testing.T, initialConfigContent string, agentCreator f
 	return appCfg, muxAgent
 }
 
-// containsPath checks if a slice of agents contains an agent associated with a given path.
-// This is a simplified check as mock agents don't have real paths.
-// In a real test with functional agents, you'd check actual agent paths.
-// For these tests, we'll check if the *config* paths are reflected.
-func agentPaths(agents []*pkg.Agent) []string {
-	// This is a placeholder. In a real scenario with *pkg.Agent having an accessible Path field:
-	// paths := make([]string, len(agents))
-	// for i, agent := range agents {
-	//  paths[i] = agent.Path() // Assuming agent.Path() exists and is public
-	// }
-	// return paths
-	// Since our mockAgentCreator doesn't store paths in the dummy pkg.Agent,
-	// this helper can't be fully implemented yet without modifying pkg.Agent or the mock.
-	// For now, tests will have to rely on comparing config.AppConfig.Targets/AddTargets.
-	return nil
-}
-
 // For now, tests will primarily assert changes in AppConfig and MuxAgent's command string,
 // and the *number* of agents, rather than their specific paths due to mock limitations.
 // If pkg.Agent had a public Path field, we could do more.
