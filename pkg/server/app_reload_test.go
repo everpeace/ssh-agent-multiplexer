@@ -15,7 +15,7 @@ import (
 
 	"github.com/everpeace/ssh-agent-multiplexer/pkg"
 	// "github.com/everpeace/ssh-agent-multiplexer/pkg/config" // Unused import
-	"github.com/everpeace/ssh-agent-multiplexer/server" // Now using server.App
+	"github.com/everpeace/ssh-agent-multiplexer/pkg/server" // Corrected import path
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"

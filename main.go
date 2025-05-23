@@ -14,7 +14,7 @@ import (
 
 	"github.com/everpeace/ssh-agent-multiplexer/pkg"
 	"github.com/everpeace/ssh-agent-multiplexer/pkg/config" // Needed for config.DefineAndBindFlags
-	"github.com/everpeace/ssh-agent-multiplexer/server"
+	"github.com/everpeace/ssh-agent-multiplexer/pkg/server" // Updated import path (single instance)
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/pflag"
