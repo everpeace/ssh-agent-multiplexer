@@ -302,35 +302,25 @@ func main() {
 	}()
 
 	// Create agents.
-	// TODO: Agent setup will need to be dynamic if configuration reloads can change them.
-	var addTargetAgents []*pkg.Agent
+	// The MuxAgent will be initialized using the AppConfig.
+	// Warnings for no targets are still useful here as a high-level check.
 	if len(appCfg.AddTargets) == 0 {
-		log.Warn().Msg("No add-target agents specified. The multiplexer cannot add any keys. Please specify --add-target if you want.")
+		log.Warn().Msg("No add-target agents specified in the configuration. The multiplexer cannot add any keys. Please specify 'add_targets' in config or --add-target if you want.")
 	}
-	if len(appCfg.AddTargets) > 0 {
-		for _, atPath := range appCfg.AddTargets {
-			addTargetAgents = append(addTargetAgents, pkg.MustNewAgent(atPath))
-		}
+	if len(appCfg.Targets) == 0 && len(appCfg.AddTargets) == 0 {
+		log.Warn().Msg("No target or add-target agents specified in the configuration. The multiplexer may not be very useful. Please specify 'targets' or 'add_targets' in config or use --target/--add-target.")
 	}
 
-	targetAgents := []*pkg.Agent{}
-	for _, t := range appCfg.Targets {
-		targetAgents = append(targetAgents, pkg.MustNewAgent(t))
-	}
-
-	if len(targetAgents)+len(addTargetAgents) == 0 {
-		log.Warn().Msg("No target agents specified. The multiplexer would not so useful. Please specify --target/--add-target.")
-	}
-
-	// TODO: `agt` should be updated if the configuration reloads and agent settings change.
-	// This requires careful synchronization and is currently a placeholder for future work.
 	// agt is declared here and will be captured by the config watcher goroutine.
 	// It will also be used by the connection handling goroutines.
 	// It's important that agt itself (the pointer) is not reassigned after this point,
 	// but rather its internal state is updated via UpdateConfig.
 	var agt agent.ExtendedAgent // Use the interface type
-	agt = pkg.NewMuxAgent(targetAgents, addTargetAgents, appCfg.SelectTargetCommand)
-	log.Debug().Msg("Succeed to connect all the target agents.")
+	// Initialize MuxAgent directly with appCfg.
+	// NewMuxAgent will internally handle creating Agent instances for paths in appCfg.
+	agt = pkg.NewMuxAgent(appCfg)
+	// Log message "Succeed to connect all the target agents." is now effectively handled by NewMuxAgent's internal logging.
+	// If NewMuxAgent panics (due to MustNewAgent), the application will exit, which is the expected behavior.
 
 	// Main accept loop for incoming agent connections.
 	log.Info().Str("listen", effectiveListen).Msg("SSH Agent Multiplexer listening")

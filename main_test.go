@@ -106,31 +106,38 @@ func createDummySocket(t *testing.T, agentPath string) (path string, cleanup fun
 
 func setupTestMuxAgent(t *testing.T, initialCfg *config.AppConfig) *pkg.MuxAgent {
 	t.Helper()
-	var addTargetAgents []*pkg.Agent
+	// cleanups will store functions to remove dummy sockets after the agent is presumably done.
+	// Note: If NewMuxAgent panics (due to MustNewAgent failing), these deferrals might not all run
+	// as expected if the panic is in a loop. However, MustNewAgent panicking would fail the test,
+	// and t.TempDir() or specific defer os.Remove should handle socket cleanup eventually.
 	var cleanups []func()
 	defer func() {
-		for _, c := range cleanups {
-			c()
+		// Run cleanups in reverse order of creation, though order doesn't strictly matter here.
+		for i := len(cleanups) - 1; i >= 0; i-- {
+			cleanups[i]()
 		}
 	}()
 
+	// Create dummy sockets for all paths defined in AddTargets.
+	// NewMuxAgent (via MustNewAgent) will try to connect to these.
 	for _, p := range initialCfg.AddTargets {
-		dummyPath, cleanup := createDummySocket(t, p)
-		cleanups = append(cleanups, cleanup)
-		addTargetAgents = append(addTargetAgents, pkg.MustNewAgent(dummyPath))
+		_, cleanup := createDummySocket(t, p)
+		cleanups = append(cleanups, cleanup) // Add cleanup func to list
 	}
 
-	var targetAgents []*pkg.Agent
+	// Create dummy sockets for all paths defined in Targets.
 	for _, p := range initialCfg.Targets {
-		dummyPath, cleanup := createDummySocket(t, p)
-		cleanups = append(cleanups, cleanup)
-		targetAgents = append(targetAgents, pkg.MustNewAgent(dummyPath))
+		_, cleanup := createDummySocket(t, p)
+		cleanups = append(cleanups, cleanup) // Add cleanup func to list
 	}
 
-	muxAgent := pkg.NewMuxAgent(targetAgents, addTargetAgents, initialCfg.SelectTargetCommand)
-	// Ensure it's the concrete type for calling test helpers like GetTargetPaths
-	concreteAgent, ok := muxAgent.(*pkg.MuxAgent)
-	require.True(t, ok, "NewMuxAgent did not return a *pkg.MuxAgent")
+	// Now, call the refactored NewMuxAgent with the AppConfig.
+	// NewMuxAgent itself will call MustNewAgent on the paths from initialCfg.
+	muxAgentInstance := pkg.NewMuxAgent(initialCfg)
+
+	// Ensure it's the concrete type for calling test helpers like GetTargetPaths.
+	concreteAgent, ok := muxAgentInstance.(*pkg.MuxAgent)
+	require.True(t, ok, "NewMuxAgent did not return *pkg.MuxAgent as expected by type assertion")
 	return concreteAgent
 }
 

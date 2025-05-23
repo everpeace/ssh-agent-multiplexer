@@ -34,18 +34,35 @@ type MuxAgent struct {
 }
 
 // NewMuxAgent creates a new MuxAgent.
-// Note: It's generally better to pass config.AppConfig and let NewMuxAgent extract paths
-// to ensure consistency, but current structure passes pre-created agents.
-// For the purpose of this update, we'll stick to the existing signature for NewMuxAgent
-// and assume the caller (main.go) handles initial Agent creation.
-// The UpdateConfig method will handle creation from config paths.
-func NewMuxAgent(targets []*Agent, addTargets []*Agent, selectTargetCommand string) agent.ExtendedAgent {
-	return &MuxAgent{
+// NewMuxAgent creates a new MuxAgent from the given application configuration.
+// It initializes the target agents based on the paths provided in the config.
+func NewMuxAgent(cfg *config.AppConfig) agent.ExtendedAgent {
+	log.Debug().Msg("MuxAgent: Initializing from AppConfig")
+
+	addTargets := make([]*Agent, 0, len(cfg.AddTargets))
+	for _, atPath := range cfg.AddTargets {
+		// MustNewAgent will handle creating/connecting to the agent.
+		// It might panic if a path is invalid or connection fails,
+		// which is acceptable for a "Must" constructor.
+		addTargets = append(addTargets, MustNewAgent(atPath))
+	}
+	log.Debug().Int("count", len(addTargets)).Msg("MuxAgent: Initialized AddTargets")
+
+	targets := make([]*Agent, 0, len(cfg.Targets))
+	for _, tPath := range cfg.Targets {
+		targets = append(targets, MustNewAgent(tPath))
+	}
+	log.Debug().Int("count", len(targets)).Msg("MuxAgent: Initialized Targets")
+
+	muxAgent := &MuxAgent{
 		// mu is initialized as the zero value for sync.RWMutex
 		AddTargets:          addTargets,
 		Targets:             targets,
-		SelectTargetCommand: selectTargetCommand,
+		SelectTargetCommand: cfg.SelectTargetCommand,
 	}
+	log.Debug().Str("command", muxAgent.SelectTargetCommand).Msg("MuxAgent: Set SelectTargetCommand")
+	log.Info().Msg("MuxAgent: Initialized successfully from AppConfig")
+	return muxAgent
 }
 
 // UpdateConfig updates the MuxAgent's configuration.
