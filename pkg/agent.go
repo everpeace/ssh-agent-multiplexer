@@ -5,6 +5,7 @@
 package pkg
 
 import (
+	"fmt" // Added for error wrapping
 	"net"
 	"sync"
 
@@ -24,16 +25,31 @@ type Agent struct {
 	lock sync.Mutex // protect updating agent
 }
 
-func MustNewAgent(path string) *Agent {
+// NewAgent creates a new Agent instance and connects to the agent socket.
+// It returns an error if the connection fails.
+func NewAgent(path string) (*Agent, error) {
 	logger := log.With().Str("path", path).Logger()
 	a := &Agent{
 		path:   path,
 		logger: logger,
 	}
 	if err := a.connect(); err != nil {
-		logger.Fatal().Msg("Failed to connect to the agent")
+		// Wrap the error for more context, or return as is if connect() is descriptive enough.
+		return nil, fmt.Errorf("failed to connect to agent at %s: %w", path, err)
 	}
-	return a
+	return a, nil
+}
+
+// MustNewAgent creates a new Agent instance and connects to the agent socket.
+// It panics if the connection fails. This is for compatibility with existing code.
+// Prefer NewAgent for error handling.
+func MustNewAgent(path string) *Agent {
+	logger := log.With().Str("path", path).Logger() // Create logger instance first
+	agent, err := NewAgent(path)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("Failed to connect to the agent") // Use the logger instance
+	}
+	return agent
 }
 
 func (a *Agent) connect() error {

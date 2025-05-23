@@ -12,6 +12,7 @@ import (
 	"os"      // For os.Environ, exec.Command
 	"os/exec" // For exec.Command
 	"strings" // For strings.Join, etc.
+	"sync"    // For sync.RWMutex
 
 	"github.com/rs/zerolog/log"
 	"go.uber.org/multierr"
@@ -27,9 +28,26 @@ type MuxAgent struct {
 	AddTargets          []*Agent
 	Targets             []*Agent
 	SelectTargetCommand string
+	mu                  sync.RWMutex // Mutex for thread-safe access
 }
 
-func NewMuxAgent(targets []*Agent, addTargets []*Agent, selectTargetCommand string) agent.Agent {
+// Update changes the configuration of the MuxAgent.
+// It is thread-safe.
+func (m *MuxAgent) Update(targets []*Agent, addTargets []*Agent, selectTargetCommand string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.Targets = targets
+	m.AddTargets = addTargets
+	m.SelectTargetCommand = selectTargetCommand
+
+	log.Info().
+		Int("active_targets", len(m.Targets)).
+		Int("active_addTargets", len(m.AddTargets)).
+		Msg("MuxAgent updated with new configuration.")
+}
+
+func NewMuxAgent(targets []*Agent, addTargets []*Agent, selectTargetCommand string) *MuxAgent { // Changed return type
 	return &MuxAgent{
 		AddTargets:          addTargets,
 		Targets:             targets,
@@ -39,6 +57,9 @@ func NewMuxAgent(targets []*Agent, addTargets []*Agent, selectTargetCommand stri
 
 // List implements agent.Agent
 func (m *MuxAgent) List() ([]*agent.Key, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	var err error
 	keys := []*agent.Key{}
 	m.iterate(func(a *Agent) bool {
@@ -60,6 +81,9 @@ func (m *MuxAgent) List() ([]*agent.Key, error) {
 
 // Lock implements agent.Agent
 func (m *MuxAgent) Lock(passphrase []byte) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	m.iterate(func(a *Agent) bool {
 		logger := log.With().Str("method", "Lock").Str("path", a.path).Logger()
 		err := a.Lock(passphrase)
@@ -74,6 +98,9 @@ func (m *MuxAgent) Lock(passphrase []byte) error {
 
 // Unlock implements agent.Agent
 func (m *MuxAgent) Unlock(passphrase []byte) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	m.iterate(func(a *Agent) bool {
 		logger := log.With().Str("method", "Unlock").Str("path", a.path).Logger()
 		err := a.Unlock(passphrase)
@@ -93,7 +120,10 @@ type publicKeyToAgent struct {
 
 // Sign implements agent.Agent
 func (m *MuxAgent) Sign(key ssh.PublicKey, data []byte) (*ssh.Signature, error) {
-	mapping, err := m.publicKeyToAgentMapping()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	mapping, err := m.publicKeyToAgentMapping() // This will use iterate, which is fine as it doesn't lock
 	if err != nil {
 		return nil, err
 	}
@@ -113,6 +143,8 @@ func (m *MuxAgent) Sign(key ssh.PublicKey, data []byte) (*ssh.Signature, error) 
 }
 
 func (m *MuxAgent) publicKeyToAgentMapping() ([]publicKeyToAgent, error) {
+	// This method is called by Sign, SignWithFlags, and Remove, which already hold m.mu.RLock().
+	// So, no need to lock here again.
 	pkToAgents := []publicKeyToAgent{}
 	var err error
 	m.iterate(func(a *Agent) bool {
@@ -137,6 +169,9 @@ func (m *MuxAgent) publicKeyToAgentMapping() ([]publicKeyToAgent, error) {
 
 // Signers implements agent.Agent
 func (m *MuxAgent) Signers() ([]ssh.Signer, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	signers := []ssh.Signer{}
 	var err error
 	m.iterate(func(a *Agent) bool {
@@ -179,25 +214,40 @@ func (m *MuxAgent) iterate(f func(a *Agent) bool) {
 
 // Add implements agent.Agent
 func (m *MuxAgent) Add(key agent.AddedKey) error {
+	m.mu.RLock() // Read lock for accessing m.AddTargets and m.SelectTargetCommand
+	// Note: selectedAgent.Add(key) is an external call, happens after RUnlock if we defer early.
+	// This is complex. If selection logic is quick, we can hold lock.
+	// Or, copy needed data, unlock, then do external calls.
+	// For now, let's hold the RLock. If selectTargetCommand is long, this could be an issue.
+
 	if len(m.AddTargets) == 0 {
+		m.mu.RUnlock() // Unlock before returning
 		log.Error().Msg("Failed to add a key: no add-target specified")
 		return errors.New("add functionality disabled: no add-target specified")
 	}
 
 	var selectedAgent *Agent
+	var selectedAgentPath string // For logging after unlock, if needed
 
 	if len(m.AddTargets) == 1 {
 		selectedAgent = m.AddTargets[0]
-		log.Debug().Str("path", selectedAgent.path).Msg("Selected single agent for adding key")
+		selectedAgentPath = selectedAgent.path
+		m.mu.RUnlock() // Unlock as soon as shared data access is done
+		log.Debug().Str("path", selectedAgentPath).Msg("Selected single agent for adding key")
 	} else {
 		// Multiple AddTargets
-		if m.SelectTargetCommand == "" {
+		selectCmd := m.SelectTargetCommand // Copy needed field
+		addTargetsCopy := make([]*Agent, len(m.AddTargets))
+		copy(addTargetsCopy, m.AddTargets)
+		m.mu.RUnlock() // Unlock before executing external command
+
+		if selectCmd == "" {
 			log.Error().Msg("Multiple add-targets specified but no select-target-command configured")
 			return errors.New("multiple add-targets specified but no select-target-command configured")
 		}
 
 		var targetPaths []string
-		for _, agent := range m.AddTargets {
+		for _, agent := range addTargetsCopy { // Use copy
 			targetPaths = append(targetPaths, agent.path)
 		}
 		targetsEnvVar := strings.Join(targetPaths, "\n")
@@ -233,7 +283,7 @@ func (m *MuxAgent) Add(key agent.AddedKey) error {
 		}
 		keyInfoString := strings.Join(keyInfoParts, ";")
 
-		cmd := exec.Command(m.SelectTargetCommand)
+		cmd := exec.Command(selectCmd) // Use copied field
 		env := os.Environ()
 		env = append(env, "SSH_AGENT_MUX_TARGETS="+targetsEnvVar)
 		env = append(env, "SSH_AGENT_MUX_KEY_INFO="+keyInfoString)
@@ -243,37 +293,39 @@ func (m *MuxAgent) Add(key agent.AddedKey) error {
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
 
-		log.Debug().Str("command", m.SelectTargetCommand).Strs("env_targets", targetPaths).Msg("Executing select-target-command")
+		log.Debug().Str("command", selectCmd).Strs("env_targets", targetPaths).Msg("Executing select-target-command")
 		err := cmd.Run()
 		if err != nil {
-			log.Error().Err(err).Str("command", m.SelectTargetCommand).Str("stderr", stderr.String()).Msg("Failed to execute select-target-command")
-			return fmt.Errorf("failed to execute select-target-command '%s': %w. Stderr: %s", m.SelectTargetCommand, err, stderr.String())
+			log.Error().Err(err).Str("command", selectCmd).Str("stderr", stderr.String()).Msg("Failed to execute select-target-command")
+			return fmt.Errorf("failed to execute select-target-command '%s': %w. Stderr: %s", selectCmd, err, stderr.String())
 		}
 
 		selectedTargetPath := strings.TrimSpace(stdout.String())
 		if selectedTargetPath == "" {
-			log.Error().Str("command", m.SelectTargetCommand).Msg("select-target-command returned empty output")
+			log.Error().Str("command", selectCmd).Msg("select-target-command returned empty output")
 			return errors.New("select-target-command returned empty output")
 		}
 
-		log.Debug().Str("command", m.SelectTargetCommand).Str("selected_path_raw", stdout.String()).Str("selected_path_trimmed", selectedTargetPath).Msg("select-target-command output")
+		log.Debug().Str("command", selectCmd).Str("selected_path_raw", stdout.String()).Str("selected_path_trimmed", selectedTargetPath).Msg("select-target-command output")
 
-		for _, agent := range m.AddTargets {
-			if agent.path == selectedTargetPath {
-				selectedAgent = agent
+		for _, agentInstance := range addTargetsCopy { // Use copy
+			if agentInstance.path == selectedTargetPath {
+				selectedAgent = agentInstance
 				break
 			}
 		}
 
 		if selectedAgent == nil {
-			log.Error().Str("command", m.SelectTargetCommand).Str("returned_path", selectedTargetPath).Msg("select-target-command returned an invalid target path")
+			log.Error().Str("command", selectCmd).Str("returned_path", selectedTargetPath).Msg("select-target-command returned an invalid target path")
 			return fmt.Errorf("select-target-command returned an invalid target path: '%s'", selectedTargetPath)
 		}
-		log.Debug().Str("path", selectedAgent.path).Str("command", m.SelectTargetCommand).Msg("Selected agent for adding key via command")
+		selectedAgentPath = selectedAgent.path // For logging
+		log.Debug().Str("path", selectedAgentPath).Str("command", selectCmd).Msg("Selected agent for adding key via command")
 	}
 
-	logger := log.With().Str("method", "Add").Str("path", selectedAgent.path).Logger()
-	err := selectedAgent.Add(key)
+	// selectedAgent is now determined, and RLock is released.
+	logger := log.With().Str("method", "Add").Str("path", selectedAgentPath).Logger()
+	err := selectedAgent.Add(key) // External call to agent
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to add a key")
 		return err
@@ -285,6 +337,9 @@ func (m *MuxAgent) Add(key agent.AddedKey) error {
 
 // Remove implements agent.Agent
 func (m *MuxAgent) Remove(key ssh.PublicKey) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	mapping, err := m.publicKeyToAgentMapping()
 	if err != nil {
 		return err
@@ -307,6 +362,9 @@ func (m *MuxAgent) Remove(key ssh.PublicKey) error {
 
 // RemoveAll implements agent.Agent
 func (m *MuxAgent) RemoveAll() error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	m.iterate(func(a *Agent) bool {
 		logger := log.With().Str("method", "RemoveAll").Str("path", a.path).Logger()
 		err := a.RemoveAll()
@@ -322,6 +380,9 @@ func (m *MuxAgent) RemoveAll() error {
 
 // Extension implements agent.ExtendedAgent.
 func (m *MuxAgent) Extension(extensionType string, contents []byte) ([]byte, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	var resp []byte
 	var errs error
 
@@ -351,6 +412,9 @@ func (m *MuxAgent) Extension(extensionType string, contents []byte) ([]byte, err
 
 // SignWithFlags implements agent.ExtendedAgent.
 func (m *MuxAgent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent.SignatureFlags) (*ssh.Signature, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	mapping, err := m.publicKeyToAgentMapping()
 	if err != nil {
 		return nil, err
