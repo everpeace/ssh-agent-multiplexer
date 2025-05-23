@@ -188,7 +188,7 @@ func simulateMainWatcherLogic(
 					// Don't send error here, as it might be part of normal shutdown if ctx was also just closed.
 					return
 				}
-				
+
 				loadedCfg := currentAppConfig.Load().(*config.AppConfig)
 				// Ensure ConfigFilePathUsed is correctly populated by loadAndApplyConfig
 				cfgFileToWatch := loadedCfg.ConfigFilePathUsed
@@ -196,10 +196,9 @@ func simulateMainWatcherLogic(
 					cfgFileToWatch = configFilePath // Fallback to the path we are explicitly watching for tests
 				}
 
-
 				if filepath.Clean(event.Name) == filepath.Clean(cfgFileToWatch) && event.Has(fsnotify.Write) {
 					log.Info().Str("file", event.Name).Msg("(Test) Config file modification detected.")
-					
+
 					// Pass the -c flag value (configFlagValue) to loadAndApplyConfig, which is what main.go does.
 					newCfg, errLoad := loadAndApplyConfig(configFlagValue, log.Logger)
 					if errLoad != nil {
@@ -245,7 +244,6 @@ func TestConfigReload_SuccessfulUpdate(t *testing.T) {
 	muxAgent := setupTestMuxAgent(t, initialCfg) // This also creates dummy sockets for initialCfg
 	// Get actual paths used by muxAgent, which might be modified by createDummySocket
 	assert.Equal(t, len(initialTargetPaths), len(muxAgent.GetTargetPaths()), "Initial MuxAgent targets count incorrect")
-
 
 	watcherErrorChan := make(chan error, 1)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -294,7 +292,6 @@ func TestConfigReload_InvalidTomlSyntax(t *testing.T) {
 	zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	defer zerolog.SetGlobalLevel(zerolog.GlobalLevel())
 
-
 	initialTargetPaths := []string{"/tmp/agent.initial-syntax.sock"}
 	initialCfg := &config.AppConfig{Targets: initialTargetPaths, Debug: true}
 	configFilePath, _ := createTempConfigFile(t, initialCfg)
@@ -336,7 +333,6 @@ func TestConfigReload_SemanticallyInvalidConfig(t *testing.T) {
 	zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	defer zerolog.SetGlobalLevel(zerolog.GlobalLevel())
 
-
 	initialTargetPaths := []string{"/tmp/agent.initial-semantic.sock"}
 	initialCfg := &config.AppConfig{Targets: initialTargetPaths, Debug: true}
 	configFilePath, _ := createTempConfigFile(t, initialCfg)
@@ -367,7 +363,7 @@ func TestConfigReload_SemanticallyInvalidConfig(t *testing.T) {
 
 	assert.Equal(t, originalAgentTargetPaths, muxAgent.GetTargetPaths(), "MuxAgent targets should not change after semantically invalid reload")
 	assert.NotContains(t, logs, "MuxAgent: Updating configuration", "MuxAgent should not attempt to update with semantically invalid config")
-	
+
 	cancel()
 	select {
 	case err, ok := <-watcherErrorChan:

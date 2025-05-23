@@ -261,7 +261,7 @@ func (m *MuxAgent) Signers() ([]ssh.Signer, error) {
 		if errSigners != nil {
 			logger.Error().Err(errSigners).Msg("Failed to get Signers")
 			errCol = multierr.Append(errCol, errSigners) // Collect errors
-			return true                                 // Stop if critical, or false to continue
+			return true                                  // Stop if critical, or false to continue
 		}
 		signers = append(signers, _signers...)
 		logger.Debug().Msgf("Signers() returns %d signers", len(_signers)) // Corrected log level
