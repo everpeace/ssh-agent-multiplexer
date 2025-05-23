@@ -46,11 +46,9 @@ type App struct {
 
 // NewApp creates and initializes a new App instance.
 // initialConfigFlagValue: Path to config file from --config flag (can be empty).
-// cliListenOverride: Listen address from --listen flag (can be empty).
 // agentCreator: Function to create agent instances.
 func NewApp(
 	initialConfigFlagValue string,
-	cliListenOverride string,
 	agentCreator func(path string) (*pkg.Agent, error),
 	version string, // Injected version
 	revision string, // Injected revision
@@ -91,10 +89,7 @@ func NewApp(
 	initialAppConfig := config.GetAppConfig(v, app.configFilePath) // GetAppConfig needs Viper instance and path
 
 	// 2. Determine Effective Listen Path
-	effectiveListen := cliListenOverride
-	if effectiveListen == "" {
-		effectiveListen = initialAppConfig.Listen
-	}
+	effectiveListen := initialAppConfig.Listen
 	if effectiveListen == "" {
 		// Derive default based on config file path or current/temp directory
 		var sockDir string

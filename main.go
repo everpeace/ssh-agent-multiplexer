@@ -47,8 +47,8 @@ func main() {
 	mainFlagSet.BoolP("help", "h", false, "Print this help message and exit.")
 	mainFlagSet.StringP("config", "c", configFlagValue, "Path to a configuration file.")
 
-	var cliListenOverride string
-	mainFlagSet.StringVarP(&cliListenOverride, "listen", "l", "", "Path to the unix domain socket to listen on. Overrides config file if set.")
+	// var cliListenOverride string
+	// mainFlagSet.StringVarP(&cliListenOverride, "listen", "l", "", "Path to the unix domain socket to listen on. Overrides config file if set.")
 
 	// Define other flags that server.NewApp will expect to be bound in Viper.
 	// config.DefineAndBindFlags handles this.
@@ -82,7 +82,7 @@ func main() {
 	// Other config values (debug, targets, etc.) are expected to be picked up by
 	// server.NewApp through its internal call to config.GetAppConfig(v, configFileUsed),
 	// where 'v' has been populated by config.DefineAndBindFlags and mainFlagSet.Parse().
-	app, err := server.NewApp(configFlagValue, cliListenOverride, agentCreatorFunc, Version, Revision)
+	app, err := server.NewApp(configFlagValue, agentCreatorFunc, Version, Revision)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to initialize application.")
 	}

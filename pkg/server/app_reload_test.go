@@ -60,8 +60,8 @@ func setupInitialState(t *testing.T, initialConfigContent string, agentCreator f
 		initialConfigPath = writeTempConfigFile(t, "initial-config", initialConfigContent)
 	}
 
-	// For NewApp, cliListenOverride is empty, version/revision are test values.
-	app, err := server.NewApp(initialConfigPath, "", agentCreator, "test-version", "test-revision")
+	// For NewApp, version/revision are test values.
+	app, err := server.NewApp(initialConfigPath, agentCreator, "test-version", "test-revision")
 	require.NoError(t, err, "server.NewApp failed during setupInitialState")
 	require.NotNil(t, app, "server.NewApp returned nil app during setupInitialState")
 
@@ -307,7 +307,6 @@ debug = false
 	app.AppConfigLock().RUnlock()
 	require.NotEmpty(t, initialConfigPath, "Initial config path should be set in app")
 
-
 	// New configuration attempts to change listen address and adds a target
 	newListenAddress := "/tmp/new-listen.sock"
 	newConfigContent := fmt.Sprintf(`
@@ -321,7 +320,7 @@ debug = true # Another change that should be applied
 	require.NoError(t, err, "Failed to overwrite temp config file for listen address change test")
 
 	// Capture logs from the app's specific logger instance
-	originalAppLogger := app.Logger() // Get the app's current logger
+	originalAppLogger := app.Logger()  // Get the app's current logger
 	originalGlobalLogger := log.Logger // Save global logger state
 	var logOutput strings.Builder
 	testLogger := zerolog.New(&logOutput).With().Timestamp().Logger()
