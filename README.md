@@ -32,18 +32,36 @@ make
 
 _This quickstart is available only when installed via Homebrew._
 
-1. Edit the default [config file](#configuration-file)
-  - for Mac: `~/Library/Application Support/ssh-agent-multiplexer/config.toml`
-  - for Linux: `~/.config/ssh-agent-multiplexer/config.toml`
-2. Start ssh-agent-multiplexer service via homebrew services
-  ```console
-  # logs will be at "$HOMEBREW_PREFIX/var/log/ssh-agent-multiplexer.log"
-  brew services start ssh-agent-multiplexer
-  ```
-3. Set `<your config dir>/agent.sock` to `SSH_AUTH_SOCK` (If you set `listen` in your config, set the value here)
-  ```console
-  export SSH_AUTH_SOCK="<your config dir>/agent.sock"
-  ```
+1.  Edit the default [config file](#configuration-file)
+    *   for Mac: `~/Library/Application Support/ssh-agent-multiplexer/config.toml`
+    *   for Linux: `~/.config/ssh-agent-multiplexer/config.toml`
+
+    You can use [environment variables](#environment-variable-expansion) like `${SSH_AUTH_SOCK}` directly in string values. For example, to use your current SSH agent as one of the agents the multiplexer can forward to, and have the multiplexer listen on a new, dedicated socket:
+
+    ```toml
+    # Example for ~/Library/Application Support/ssh-agent-multiplexer/config.toml
+    # or ~/.config/ssh-agent-multiplexer/config.toml
+
+    # Let the multiplexer listen on a new socket, perhaps in your home directory for clarity
+    listen = "${HOME}/mux.sock"
+
+    # Add your existing SSH agent as a target for adding keys by expanding SSH_AUTH_SOCK
+    add_targets = ["${SSH_AUTH_SOCK}"]
+
+    # You can also add other read-only targets if needed
+    # targets = ["/path/to/another/readonly-agent.sock"]
+    ```
+
+2.  Start ssh-agent-multiplexer service via homebrew services
+    ```console
+    # logs will be at "$HOMEBREW_PREFIX/var/log/ssh-agent-multiplexer.log"
+    brew services start ssh-agent-multiplexer
+    ```
+3.  Set `SSH_AUTH_SOCK` to the `listen` path you defined in your config file (e.g., the value of `listen` in the example above).
+    ```console
+    export SSH_AUTH_SOCK="${HOME}/mux.sock" # Or whatever you set for 'listen' in your config
+    ```
+    Now, `ssh-add -l` should show keys from your original agent (forwarded through the multiplexer), and new keys added via `ssh-add` will go to that original agent.
 
 Note: ssh-agent-multiplexer supports dynamic configuration reloading. You don't need to restart your service when you updated the config file. Please see [Dynamic Configuration Reloading](#dynamic-configuration-reloading) section for details.
 
@@ -179,6 +197,34 @@ Configuration values are determined with the following precedence (highest to lo
 2.  **Configuration file values:** Settings defined in the loaded TOML configuration file.
 3.  **Built-in default values:** Default values for options if not specified by flags or a config file (e.g., `select-target-command` defaults to `ssh-agent-mux-select`).
 
+### Environment Variable Expansion
+
+String values within the configuration file for options like `listen`, `targets`, `add_targets`, and `select_target_command` can utilize environment variables. This allows for more dynamic and user-specific configurations.
+
+The application supports expansion for variables using the `${VAR}` or `$VAR` syntax. `os.ExpandEnv` is used for the substitution, which means:
+- `${VAR}` is replaced by the value of the environment variable `VAR`.
+- `$VAR` is also replaced by the value of `VAR`.
+- If a variable is not set, it's replaced with an empty string. For example, if `UNDEFINED_VAR` is not set, `"${UNDEFINED_VAR}/path"` becomes `"/path"`.
+
+**Example:**
+
+```toml
+# In your config.toml
+listen = "${HOME}/my-agent.sock"  # Expands HOME to your home directory
+targets = ["/var/run/another-agent.sock"]
+add_targets = ["${SSH_AUTH_SOCK}"] # Expands to your current SSH_AUTH_SOCK
+select_target_command = "my_script --path ${MY_CUSTOM_PATH}"
+```
+
+If `HOME` is `/Users/me`, `SSH_AUTH_SOCK` is `/tmp/ssh-XXXXXX/agent.123`, and `MY_CUSTOM_PATH` is `/opt/custom`, the above would effectively become:
+
+```toml
+listen = "/Users/me/my-agent.sock"
+targets = ["/var/run/another-agent.sock"]
+add_targets = ["/tmp/ssh-XXXXXX/agent.123"]
+select_target_command = "my_script --path /opt/custom"
+```
+
 ### Example Configuration File
 
 Here is an example of a TOML configuration file (`.ssh-agent-multiplexer.toml` or `config.toml`) showing all available options:
@@ -202,7 +248,9 @@ targets = [
 # Agents that can handle adding keys via ssh-add (equivalent to --add-target or -a flag).
 # The TOML key is "add_targets".
 add_targets = [
-  # "/path/to/example/writable-agent1.sock"
+  # "/path/to/example/writable-agent1.sock",
+  # Consider using your existing agent socket directly via environment variable expansion:
+  # "${SSH_AUTH_SOCK}" # This will be expanded to the value of your SSH_AUTH_SOCK env var
 ]
 
 # Command to use for selecting an agent when multiple add_targets are specified.
