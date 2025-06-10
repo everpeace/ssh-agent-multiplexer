@@ -195,7 +195,7 @@ func DefineAndBindFlags(v *viper.Viper, fs *pflag.FlagSet) error {
 // Returns:
 //   - *AppConfig: The populated application configuration.
 func GetAppConfig(v *viper.Viper, configFileUsedPath string) *AppConfig {
-	return &AppConfig{
+	appConfig := &AppConfig{
 		Debug:               v.GetBool("debug"),
 		Listen:              v.GetString("listen"),
 		Targets:             v.GetStringSlice("targets"),
@@ -203,4 +203,22 @@ func GetAppConfig(v *viper.Viper, configFileUsedPath string) *AppConfig {
 		SelectTargetCommand: v.GetString("select_target_command"),
 		ConfigFilePathUsed:  configFileUsedPath,
 	}
+
+	// Expand environment variables
+	appConfig.Listen = os.ExpandEnv(appConfig.Listen)
+	appConfig.SelectTargetCommand = os.ExpandEnv(appConfig.SelectTargetCommand)
+
+	expandedTargets := make([]string, len(appConfig.Targets))
+	for i, target := range appConfig.Targets {
+		expandedTargets[i] = os.ExpandEnv(target)
+	}
+	appConfig.Targets = expandedTargets
+
+	expandedAddTargets := make([]string, len(appConfig.AddTargets))
+	for i, target := range appConfig.AddTargets {
+		expandedAddTargets[i] = os.ExpandEnv(target)
+	}
+	appConfig.AddTargets = expandedAddTargets
+
+	return appConfig
 }

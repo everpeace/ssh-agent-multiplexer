@@ -77,6 +77,34 @@ func TestAppConfiguration(t *testing.T) {
 			},
 		},
 		{
+			name: "environment variable expansion in config",
+			args: []string{"--config", "env_expansion_config.toml"}, // Use --config to ensure this specific file is loaded
+			configContent: `
+debug = false
+listen = "${TEST_LISTEN_PATH}/socket.sock"
+targets = ["${TEST_TARGET_PATH_1}/agent.sock", "/absolute/path/agent.sock", "${NOT_SET_VAR}/path", "$ONLY_DOLLAR/path"]
+add_targets = ["${TEST_ADD_TARGET_PATH}/add.sock"]
+select_target_command = "echo ${TEST_SELECT_CMD_ARG}"
+`,
+			configFileRelPath: "env_expansion_config.toml",
+			preTestHook: func(t *testing.T, workingDir string, appSpecificUserStdConfigDir string, tempUserHomeDir string) {
+				t.Setenv("TEST_LISTEN_PATH", "/tmp/expanded_listen")
+				t.Setenv("TEST_TARGET_PATH_1", "/tmp/expanded_target1")
+				t.Setenv("TEST_ADD_TARGET_PATH", "/tmp/expanded_add_target")
+				t.Setenv("TEST_SELECT_CMD_ARG", "expanded_arg")
+				// NOT_SET_VAR is intentionally not set to test fallback to empty string
+				// ONLY_DOLLAR is intentionally not set to test that $VAR without {} is not expanded by os.ExpandEnv by default
+			},
+			expectedConfig: config.AppConfig{
+				Debug:               false,
+				Listen:              "/tmp/expanded_listen/socket.sock",
+				Targets:             []string{"/tmp/expanded_target1/agent.sock", "/absolute/path/agent.sock", "/path", "$ONLY_DOLLAR/path"},
+				AddTargets:          []string{"/tmp/expanded_add_target/add.sock"},
+				SelectTargetCommand: "echo expanded_arg",
+				// ConfigFilePathUsed will be updated by the test
+			},
+		},
+		{
 			name: "config file via --config flag, valid TOML",
 			args: []string{"--config", "custom_config.toml"},
 			configContent: `
