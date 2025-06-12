@@ -8,7 +8,7 @@ builds:
 - id: ssh-agent-multiplexer # Added ID for clarity
   env:
   - CGO_ENABLED=0
-  main: ./
+  main: ./cmd/ssh-agent-multiplexer/
   binary: ssh-agent-multiplexer
   goos:
   - linux
@@ -83,7 +83,7 @@ brews:
     bin.install "ssh-agent-multiplexer"
     bin.install "ssh-agent-mux-select"
   service: |
-    run opt_bin/"ssh-agent-multiplexer"
+    run [opt_bin/"ssh-agent-multiplexer", "run"]
     keep_alive true
     working_dir HOMEBREW_PREFIX
     log_path var/"log/ssh-agent-multiplexer.log"
@@ -94,4 +94,3 @@ release:
 
 changelog:
   disable: true
-

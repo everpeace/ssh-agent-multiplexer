@@ -55,16 +55,8 @@ func NewApp(
 ) (*App, error) {
 	app := &App{
 		agentCreator: agentCreator,
+		logger:       log.Logger,
 	}
-
-	// Initialize logger early
-	// In a real app, zerolog setup (like console writer, global level) might be more centralized.
-	// For now, we replicate some of main.go's early setup.
-	// The global logger can be configured after initial config is loaded.
-	app.logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339})
-	// Set a default level, will be adjusted after config load
-	zerolog.SetGlobalLevel(zerolog.InfoLevel)
-	log.Logger = app.logger // Optional: Set global logger if other parts of app use it directly
 
 	app.logger.Info().Str("version", version).Str("revision", revision).Msg("ssh-agent-multiplexer starting")
 
