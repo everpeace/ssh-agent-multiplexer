@@ -111,7 +111,7 @@ The `--add-target` flag can be specified multiple times. This allows you to prox
 Example:
 
 ```shell
-ssh-agent-multiplexer \
+ssh-agent-multiplexer run \
   --add-target /path/to/work-agent.sock \
   --add-target /path/to/personal-agent.sock \
   --target /path/to/agent.sock \
@@ -140,7 +140,7 @@ The command is expected to print the path of the chosen agent socket to its stan
 Example:
 
 ```shell
-ssh-agent-multiplexer \
+ssh-agent-multiplexer run \
   --add-target /path/to/work-agent.sock \
   --add-target /path/to/personal-agent.sock \
   --select-target-command "/path/to/ssh-agent-mux-select" \
@@ -169,7 +169,7 @@ You can, of course, write your own custom scripts or commands to use with `--sel
 You can specify a custom configuration file path using the `--config` (or `-c`) command-line flag:
 
 ```shell
-ssh-agent-multiplexer --config /path/to/your/custom-config.toml
+ssh-agent-multiplexer --config /path/to/your/custom-config.toml 
 ```
 
 ### Default Search Paths

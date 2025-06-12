@@ -18,7 +18,7 @@ build-only: build-mux build-select-tool  ## Build only (without fmt,lint)
 
 .PHONY: build-mux
 build-mux:  ## Build ssh-agent-multiplexer
-	go build $(LDFLAGS) -o $(DISTDIR)/$(NAME) ./
+	go build $(LDFLAGS) -o $(DISTDIR)/$(NAME) ./cmd/ssh-agent-multiplexer/
 
 .PHONY: build-select-tool
 build-select-tool:  ## Build ssh-agent-mux-select
