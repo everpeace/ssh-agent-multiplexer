@@ -67,6 +67,18 @@ func TestAppConfiguration(t *testing.T) {
 		{
 			name: "no config file, no flags",
 			args: []string{},
+			preTestHook: func(t *testing.T, workingDir string, appSpecificUserStdConfigDir string, tempUserHomeDir string) {
+				// Ensure no config file exists
+				if err := os.Remove(filepath.Join(workingDir, ".ssh-agent-multiplexer.toml")); err != nil {
+					t.Logf("Warning: failed to remove file: %v", err)
+				}
+				if err := os.Remove(filepath.Join(appSpecificUserStdConfigDir, "config.toml")); err != nil {
+					t.Logf("Warning: failed to remove file: %v", err)
+				}
+				if err := os.Remove(filepath.Join(tempUserHomeDir, ".config", "ssh-agent-multiplexer", "config.toml")); err != nil {
+					t.Logf("Warning: failed to remove file: %v", err)
+				}
+			},
 			expectedConfig: config.AppConfig{
 				Debug:               false,
 				Listen:              "",
@@ -129,7 +141,7 @@ select_target_command = "custom_select_cmd"
 			args:                 []string{"--config", "non_existent.toml"},
 			configFileRelPath:    "non_existent.toml",
 			expectLoadError:      true,
-			expectedLoadErrorMsg: "failed to read specified config file",
+			expectedLoadErrorMsg: "specified config file does not exist",
 		},
 		{
 			name: "config file from default local location (.ssh-agent-multiplexer.toml)",
@@ -140,6 +152,15 @@ listen = "/tmp/default_local.sock"
 targets = ["/target/default_local.sock"]
 `,
 			configFileRelPath: ".ssh-agent-multiplexer.toml",
+			preTestHook: func(t *testing.T, workingDir string, appSpecificUserStdConfigDir string, tempUserHomeDir string) {
+				// Create the default local config file
+				_, cleanup := createTempConfigFile(t, workingDir, ".ssh-agent-multiplexer.toml", `
+debug = true
+listen = "/tmp/default_local.sock"
+targets = ["/target/default_local.sock"]
+`)
+				t.Cleanup(cleanup)
+			},
 			expectedConfig: config.AppConfig{
 				Debug:               true,
 				Listen:              "/tmp/default_local.sock",
@@ -328,7 +349,7 @@ listen = "dot_config_wins_on_macos_as_fallback"
 			//nolint:errcheck
 			defer os.Chdir(originalWD)
 
-			v, actualLoadedPath, errLoad := config.LoadViperConfig(configFileArgForLoad)
+			actualLoadedPath, errLoad := config.LoadViperConfig(configFileArgForLoad)
 
 			if tc.expectLoadError {
 				require.Error(t, errLoad, "Expected LoadViperConfig to error")
@@ -338,7 +359,6 @@ listen = "dot_config_wins_on_macos_as_fallback"
 				return
 			}
 			require.NoError(t, errLoad, "LoadViperConfig failed unexpectedly: %v", errLoad)
-			require.NotNil(t, v, "Viper instance should not be nil after LoadViperConfig")
 
 			if configFileArgForLoad == "" { // A default path was used or no file found
 				expectedConfigPathForAssertion = actualLoadedPath // actualLoadedPath is the source of truth
@@ -348,7 +368,7 @@ listen = "dot_config_wins_on_macos_as_fallback"
 			fs := pflag.NewFlagSet("testflags", pflag.ContinueOnError)
 			fs.SetOutput(io.Discard)
 
-			err = config.DefineAndBindFlags(v, fs)
+			err = config.DefineAndBindFlags(fs)
 			require.NoError(t, err, "DefineAndBindFlags failed: %v")
 
 			pflagArgs := tc.args
@@ -371,7 +391,7 @@ listen = "dot_config_wins_on_macos_as_fallback"
 			}
 			require.NoError(t, err, "fs.Parse failed: %v", err)
 
-			appCfg := config.GetAppConfig(v, actualLoadedPath)
+			appCfg := config.GetAppConfig(actualLoadedPath)
 			require.NotNil(t, appCfg, "GetAppConfig returned nil")
 
 			assert.Equal(t, tc.expectedConfig.Debug, appCfg.Debug, "Mismatch for 'Debug'")

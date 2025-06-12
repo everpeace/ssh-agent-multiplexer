@@ -32,9 +32,10 @@ make
 
 _This quickstart is available only when installed via Homebrew._
 
-1.  Edit the default [config file](#configuration-file)
-    *   for Mac: `~/Library/Application Support/ssh-agent-multiplexer/config.toml`
-    *   for Linux: `~/.config/ssh-agent-multiplexer/config.toml`
+1. Hit `ssh-agent-multiplexer config edit`
+    * This command opens your default config file with `EDITOR` environment variable (default is `vi`). Default config file path depends on your system:
+      *   for Mac: `~/Library/Application Support/ssh-agent-multiplexer/config.toml`
+      *   for Linux: `~/.config/ssh-agent-multiplexer/config.toml`
 
     You can use [environment variables](#environment-variable-expansion) like `${SSH_AUTH_SOCK}` directly in string values. For example, to use your current SSH agent as one of the agents the multiplexer can forward to, and have the multiplexer listen on a new, dedicated socket:
 
@@ -43,6 +44,7 @@ _This quickstart is available only when installed via Homebrew._
     # or ~/.config/ssh-agent-multiplexer/config.toml
 
     # Let the multiplexer listen on a new socket, perhaps in your home directory for clarity
+    # If not set, "/path/to/config_dir/agent.sock" was used.
     listen = "${HOME}/mux.sock"
 
     # Add your existing SSH agent as a target for adding keys by expanding SSH_AUTH_SOCK
@@ -52,6 +54,7 @@ _This quickstart is available only when installed via Homebrew._
     # targets = ["/path/to/another/readonly-agent.sock"]
     ```
 
+    Please see [config file](#configuration-file) section for config file schema details.
 2.  Start ssh-agent-multiplexer service via homebrew services
     ```console
     # logs will be at "$HOMEBREW_PREFIX/var/log/ssh-agent-multiplexer.log"
@@ -77,8 +80,8 @@ just run like this:
 # Note: 
 #   --target: for agents which are read-only
 #   --add-target: for agents which can support adding keys via ssh-add
-$ ssh-agents-multiplexer --add-target /path/to/work-agent.sock --target /path/to/personal-agent.sock --listen=/path/to/agent.sock
-2022-09-28T23:06:59+09:00 INF revision=4b48f3b version=0.0.2
+$ ssh-agents-multiplexer run --add-target /path/to/work-agent.sock --target /path/to/personal-agent.sock --listen=/path/to/agent.sock
+2022-09-28T23:06:59+09:00 INF revision=4b48f3b version=x.x.x
 2022-09-28T23:06:59+09:00 INF Agent multiplexer listening listen=/path/to/agent.sock
 ```
 
@@ -236,7 +239,7 @@ Here is an example of a TOML configuration file (`.ssh-agent-multiplexer.toml` o
 debug = false
 
 # Socket path for the multiplexer to listen on.
-# If commented out or not set, a path is auto-generated in the system's temporary directory.
+# If not set, "/path/to/config_dir/agent.sock" was used.
 # listen = "/path/to/your/mux.sock"
 
 # Agents to proxy for read-only operations (equivalent to --target or -t flag).

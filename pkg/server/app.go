@@ -20,7 +20,6 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"github.com/spf13/viper"
 	"golang.org/x/crypto/ssh/agent" // For agent.ServeAgent
 )
 
@@ -63,7 +62,7 @@ func NewApp(
 	app.shutdownCtx, app.shutdownCancel = context.WithCancel(context.Background())
 
 	// 1. Initial Configuration Loading
-	v, configFileUsed, err := config.LoadViperConfig(initialConfigFlagValue)
+	configFileUsed, err := config.LoadViperConfig(initialConfigFlagValue)
 	if err != nil {
 		// If a specific config file was given and failed, this is more critical.
 		if initialConfigFlagValue != "" {
@@ -72,13 +71,10 @@ func NewApp(
 		}
 		// If no specific file, and defaults failed, log it but proceed as flags/env might provide all config.
 		app.logger.Info().Err(err).Msg("No specific config file provided or default config files not found/failed to load. Using defaults/env/flags.")
-		if v == nil { // Ensure v is not nil for GetAppConfig
-			v = viper.New()
-		}
 	}
 	app.configFilePath = configFileUsed // Store the path of the config file that was actually used
 
-	initialAppConfig := config.GetAppConfig(v, app.configFilePath) // GetAppConfig needs Viper instance and path
+	initialAppConfig := config.GetAppConfig(app.configFilePath) // GetAppConfig needs Viper instance and path
 
 	// 2. Determine Effective Listen Path
 	effectiveListen := initialAppConfig.Listen
@@ -350,7 +346,7 @@ func (app *App) reloadConfigAndApply() error {
 	configSnapshotForCompare := *app.currentConfig
 
 	// 1. Load Viper Config using the stored config file path
-	v, configFileUsed, err := config.LoadViperConfig(app.configFilePath)
+	configFileUsed, err := config.LoadViperConfig(app.configFilePath)
 	if err != nil {
 		app.logger.Error().Err(err).Str("path", app.configFilePath).Msg("Failed to load viper configuration during reload.")
 		return err
@@ -362,7 +358,7 @@ func (app *App) reloadConfigAndApply() error {
 	}
 
 	// 2. Populate new AppConfig
-	newCfg := config.GetAppConfig(v, configFileUsed) // configFileUsed should be app.configFilePath
+	newCfg := config.GetAppConfig(configFileUsed) // configFileUsed should be app.configFilePath
 	app.logger.Debug().Object("newConfig", newCfg).Msg("Newly parsed application configuration during reload")
 
 	// 3. Validation (same as in NewApp/original loadAndApplyConfig)
@@ -526,7 +522,7 @@ func (app *App) reloadConfigAndApplyInternal() error {
 	configSnapshotForCompare := *app.currentConfig
 
 	// 1. Load Viper Config using the stored config file path
-	v, configFileUsed, err := config.LoadViperConfig(app.configFilePath)
+	configFileUsed, err := config.LoadViperConfig(app.configFilePath)
 	if err != nil {
 		app.logger.Error().Err(err).Str("path", app.configFilePath).Msg("Failed to load viper configuration during reload.")
 		return err
@@ -538,7 +534,7 @@ func (app *App) reloadConfigAndApplyInternal() error {
 	}
 
 	// 2. Populate new AppConfig
-	newCfg := config.GetAppConfig(v, configFileUsed) // configFileUsed should be app.configFilePath
+	newCfg := config.GetAppConfig(configFileUsed) // configFileUsed should be app.configFilePath
 	app.logger.Debug().Object("newConfig", newCfg).Msg("Newly parsed application configuration during reload")
 
 	// 3. Validation (same as in NewApp/original loadAndApplyConfig)
