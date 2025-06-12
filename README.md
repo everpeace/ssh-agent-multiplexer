@@ -44,14 +44,32 @@ _This quickstart is available only when installed via Homebrew._
     # or ~/.config/ssh-agent-multiplexer/config.toml
 
     # Let the multiplexer listen on a new socket, perhaps in your home directory for clarity
-    # If not set, "/path/to/config_dir/agent.sock" was used.
-    listen = "${HOME}/mux.sock"
+    # If not set, "<your_config_dir>/agent.sock" was used.
+    listen = "${HOME}/mux-agent.sock"
 
     # Add your existing SSH agent as a target for adding keys by expanding SSH_AUTH_SOCK
     add_targets = ["${SSH_AUTH_SOCK}"]
 
     # You can also add other read-only targets if needed
-    # targets = ["/path/to/another/readonly-agent.sock"]
+    targets = [
+        #
+        # Mac
+        #
+        # 1Password
+        # "${HOME}/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock",
+        # Bitwarden
+        # "${HOME}/Library/Containers/com.bitwarden.desktop/Data/.bitwarden-ssh-agent.sock"
+        # Secretive
+        # "${HOME}/Library/Containers/com.maxgoedjen.Secretive.SecretAgent/Data/socket.ssh",
+     
+        #
+        # Linux
+        #
+        # 1Password
+        # "${HOME}/.1password/agent.sock",
+        # Bitwarden
+        # "${HOME}/.bitwarden-ssh-agent.sock",
+    ]
     ```
 
     Please see [config file](#configuration-file) section for config file schema details.
@@ -62,7 +80,7 @@ _This quickstart is available only when installed via Homebrew._
     ```
 3.  Set `SSH_AUTH_SOCK` to the `listen` path you defined in your config file (e.g., the value of `listen` in the example above).
     ```console
-    export SSH_AUTH_SOCK="${HOME}/mux.sock" # Or whatever you set for 'listen' in your config
+    export SSH_AUTH_SOCK="${HOME}/mux-agent.sock" # Or whatever you set for 'listen' in your config
     ```
     Now, `ssh-add -l` should show keys from your original agent (forwarded through the multiplexer), and new keys added via `ssh-add` will go to that original agent.
 
